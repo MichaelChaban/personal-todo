@@ -1,0 +1,473 @@
+<template>
+  <q-page class="q-pa-md">
+    <div class="meeting-item-container">
+      <!-- Header -->
+      <div class="page-header q-mb-lg">
+        <div>
+          <h4 class="q-ma-none q-mb-xs">{{ isEditMode ? 'Edit Meeting Item' : 'Create Meeting Item' }}</h4>
+          <p class="text-grey-7 q-ma-none">{{ isEditMode ? 'Update meeting item details' : 'Complete all required fields to submit your request' }}</p>
+        </div>
+        <q-chip v-if="meetingItem.status" :color="statusColor" text-color="white" class="status-chip">
+          {{ meetingItem.status }}
+        </q-chip>
+      </div>
+
+      <!-- Tabs -->
+      <q-card flat bordered class="meeting-card">
+        <q-tabs
+          v-model="activeTab"
+          dense
+          class="text-grey-7"
+          active-color="primary"
+          indicator-color="primary"
+          align="left"
+          narrow-indicator
+        >
+          <q-tab name="general" label="General" icon="info" />
+          <q-tab name="details" label="Details" icon="description" />
+          <q-tab name="documents" label="Documents" icon="attachment" :badge="documentCount || undefined" />
+        </q-tabs>
+
+        <q-separator />
+
+        <q-tab-panels v-model="activeTab" animated>
+          <!-- General Tab -->
+          <q-tab-panel name="general" class="q-pa-lg">
+            <div class="form-section">
+              <h6 class="section-title">Basic Information</h6>
+
+              <div class="row q-col-gutter-md">
+                <div class="col-12">
+                  <q-input
+                    v-model="meetingItem.topic"
+                    label="Topic *"
+                    hint="Short title for the discussion"
+                    outlined
+                    dense
+                    :rules="[val => !!val || 'Topic is required']"
+                  />
+                </div>
+
+                <div class="col-12">
+                  <q-input
+                    v-model="meetingItem.purpose"
+                    label="Purpose *"
+                    hint="Full explanation of the discussion and requested decision"
+                    outlined
+                    dense
+                    type="textarea"
+                    rows="4"
+                    :rules="[val => !!val || 'Purpose is required']"
+                  />
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <q-select
+                    v-model="meetingItem.outcome"
+                    label="Outcome *"
+                    hint="Expected outcome type"
+                    outlined
+                    dense
+                    :options="outcomeOptions"
+                    :rules="[val => !!val || 'Outcome is required']"
+                  />
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <q-input
+                    v-model.number="meetingItem.duration"
+                    label="Duration (minutes) *"
+                    hint="Estimated discussion time"
+                    outlined
+                    dense
+                    type="number"
+                    min="1"
+                    :rules="[
+                      val => !!val || 'Duration is required',
+                      val => val > 0 || 'Duration must be positive'
+                    ]"
+                  />
+                </div>
+
+                <div class="col-12">
+                  <q-input
+                    v-model="meetingItem.digitalProduct"
+                    label="Digital Product *"
+                    hint="Related digital product or service"
+                    outlined
+                    dense
+                    :rules="[val => !!val || 'Digital Product is required']"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <q-separator class="q-my-lg" />
+
+            <div class="form-section">
+              <h6 class="section-title">Participants</h6>
+
+              <div class="row q-col-gutter-md">
+                <div class="col-12 col-md-4">
+                  <q-input
+                    v-model="meetingItem.requestor"
+                    label="Requestor *"
+                    hint="KBC ID (auto-filled)"
+                    outlined
+                    dense
+                    readonly
+                    :rules="[val => !!val || 'Requestor is required']"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="person" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <q-input
+                    v-model="meetingItem.ownerPresenter"
+                    label="Owner/Presenter *"
+                    hint="KBC ID (defaults to Requestor)"
+                    outlined
+                    dense
+                    :rules="[val => !!val || 'Owner/Presenter is required']"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="record_voice_over" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <q-input
+                    v-model="meetingItem.sponsor"
+                    label="Sponsor"
+                    hint="KBC ID (optional)"
+                    outlined
+                    dense
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="supervisor_account" />
+                    </template>
+                  </q-input>
+                </div>
+              </div>
+            </div>
+          </q-tab-panel>
+
+          <!-- Details Tab -->
+          <q-tab-panel name="details" class="q-pa-lg">
+            <div class="form-section">
+              <h6 class="section-title">Additional Information</h6>
+
+              <div class="row q-col-gutter-md">
+                <div class="col-12 col-md-6">
+                  <q-input
+                    v-model="meetingItem.submissionDate"
+                    label="Submission Date"
+                    outlined
+                    dense
+                    readonly
+                    hint="Auto-registered on submission"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="event" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <q-select
+                    v-model="meetingItem.status"
+                    label="Status"
+                    outlined
+                    dense
+                    :options="statusOptions"
+                    :disable="!canChangeStatus"
+                    hint="Current workflow status"
+                  />
+                </div>
+              </div>
+
+              <!-- Placeholder for future dynamic fields -->
+              <div class="q-mt-lg">
+                <q-banner rounded class="bg-blue-1 text-blue-9">
+                  <template v-slot:avatar>
+                    <q-icon name="info" color="blue" />
+                  </template>
+                  Additional custom fields will appear here based on the selected template.
+                </q-banner>
+              </div>
+            </div>
+          </q-tab-panel>
+
+          <!-- Documents Tab -->
+          <q-tab-panel name="documents" class="q-pa-lg">
+            <DocumentUpload
+              :meeting-item-id="meetingItem.id"
+              :decision-board-abbr="decisionBoardAbbr"
+              :topic="meetingItem.topic"
+              @documents-updated="handleDocumentsUpdate"
+            />
+          </q-tab-panel>
+        </q-tab-panels>
+      </q-card>
+
+      <!-- Action Buttons -->
+      <div class="actions-bar q-mt-lg">
+        <q-btn
+          flat
+          label="Cancel"
+          color="grey-7"
+          @click="handleCancel"
+        />
+        <div class="q-gutter-sm">
+          <q-btn
+            outline
+            label="Save Draft"
+            color="primary"
+            @click="handleSaveDraft"
+            :loading="saving"
+          />
+          <q-btn
+            unelevated
+            label="Submit"
+            color="primary"
+            @click="handleSubmit"
+            :loading="submitting"
+            :disable="!isFormValid"
+          />
+        </div>
+      </div>
+    </div>
+  </q-page>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
+import DocumentUpload from '../components/DocumentUpload.vue'
+
+const router = useRouter()
+const $q = useQuasar()
+
+// Props (if editing existing item)
+const props = defineProps({
+  id: String
+})
+
+// State
+const activeTab = ref('general')
+const saving = ref(false)
+const submitting = ref(false)
+const documentCount = ref(0)
+
+const meetingItem = ref({
+  id: null,
+  topic: '',
+  purpose: '',
+  outcome: null,
+  digitalProduct: '',
+  duration: null,
+  requestor: '',
+  ownerPresenter: '',
+  sponsor: '',
+  status: 'Submitted',
+  submissionDate: null
+})
+
+// Options
+const outcomeOptions = ['Decision', 'Discussion', 'Information']
+const statusOptions = ['Submitted', 'Proposed', 'Planned', 'Discussed', 'Denied']
+const decisionBoardAbbr = ref('DB') // This should come from context/API
+
+// Computed
+const isEditMode = computed(() => !!props.id)
+
+const canChangeStatus = computed(() => {
+  // Only secretary/admin can change status
+  // This should check user permissions
+  return false
+})
+
+const statusColor = computed(() => {
+  const colors = {
+    'Submitted': 'orange',
+    'Proposed': 'blue',
+    'Planned': 'purple',
+    'Discussed': 'green',
+    'Denied': 'red'
+  }
+  return colors[meetingItem.value.status] || 'grey'
+})
+
+const isFormValid = computed(() => {
+  return !!(
+    meetingItem.value.topic &&
+    meetingItem.value.purpose &&
+    meetingItem.value.outcome &&
+    meetingItem.value.digitalProduct &&
+    meetingItem.value.duration > 0 &&
+    meetingItem.value.requestor &&
+    meetingItem.value.ownerPresenter
+  )
+})
+
+// Lifecycle
+onMounted(async () => {
+  // Initialize requestor from current user
+  meetingItem.value.requestor = 'USER123' // Get from auth context
+  meetingItem.value.ownerPresenter = meetingItem.value.requestor
+
+  if (isEditMode.value) {
+    await loadMeetingItem(props.id)
+  }
+})
+
+// Methods
+const loadMeetingItem = async (id) => {
+  try {
+    // TODO: API call to fetch meeting item
+    // const response = await api.getMeetingItem(id)
+    // meetingItem.value = response.data
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load meeting item',
+      caption: error.message
+    })
+  }
+}
+
+const handleSaveDraft = async () => {
+  saving.value = true
+  try {
+    // TODO: API call to save draft
+    $q.notify({
+      type: 'positive',
+      message: 'Draft saved successfully'
+    })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to save draft',
+      caption: error.message
+    })
+  } finally {
+    saving.value = false
+  }
+}
+
+const handleSubmit = async () => {
+  if (!isFormValid.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please complete all required fields'
+    })
+    return
+  }
+
+  submitting.value = true
+  try {
+    meetingItem.value.submissionDate = new Date().toISOString()
+    meetingItem.value.status = 'Submitted'
+
+    // TODO: API call to submit meeting item
+    // const response = await api.submitMeetingItem(meetingItem.value)
+
+    $q.notify({
+      type: 'positive',
+      message: 'Meeting item submitted successfully'
+    })
+
+    router.push('/meeting-items')
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to submit meeting item',
+      caption: error.message
+    })
+  } finally {
+    submitting.value = false
+  }
+}
+
+const handleCancel = () => {
+  router.push('/meeting-items')
+}
+
+const handleDocumentsUpdate = (count) => {
+  documentCount.value = count
+}
+</script>
+
+<style scoped lang="scss">
+.meeting-item-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+
+  h4 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #1a1a1a;
+  }
+
+  p {
+    font-size: 0.875rem;
+  }
+}
+
+.status-chip {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.meeting-card {
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.form-section {
+  .section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 0 0 1.25rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e0e0e0;
+  }
+}
+
+.actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+}
+
+:deep(.q-tab) {
+  padding: 1rem 1.5rem;
+  font-weight: 500;
+  text-transform: none;
+  font-size: 0.9rem;
+}
+
+:deep(.q-field__label) {
+  font-weight: 500;
+  color: #424242;
+}
+
+:deep(.q-field__bottom) {
+  font-size: 0.75rem;
+}
+</style>
