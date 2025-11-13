@@ -104,8 +104,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
+import { meetingItemsApi } from '../api/meetingItems'
 
 const props = defineProps({
   meetingItemId: String,
@@ -116,6 +117,10 @@ const props = defineProps({
   topic: {
     type: String,
     default: ''
+  },
+  initialDocuments: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -125,26 +130,24 @@ const $q = useQuasar()
 
 // State
 const selectedFile = ref(null)
-const documents = ref([
-  // Mock data - remove when connected to API
-  // {
-  //   id: '1',
-  //   originalFileName: 'Business_Case.pdf',
-  //   storedFileName: 'DB20250115TOPIC.v01',
-  //   version: '01',
-  //   uploadDate: new Date().toISOString(),
-  //   fileSize: 245678
-  // }
-])
+const documents = ref([])
+const uploading = ref(false)
 
 // Computed
 const sortedDocuments = computed(() => {
   return [...documents.value].sort((a, b) => {
     if (a.originalFileName === b.originalFileName) {
-      return b.version - a.version
+      return parseInt(b.version) - parseInt(a.version)
     }
     return a.originalFileName.localeCompare(b.originalFileName)
   })
+})
+
+// Lifecycle
+onMounted(() => {
+  if (props.initialDocuments && props.initialDocuments.length > 0) {
+    documents.value = props.initialDocuments
+  }
 })
 
 // Methods
@@ -169,53 +172,74 @@ const handleFileSelect = (file) => {
   }
 }
 
+const convertFileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = error => reject(error)
+  })
+}
+
 const handleUpload = async () => {
   if (!selectedFile.value) return
 
   const file = selectedFile.value
+  uploading.value = true
 
   try {
-    // Calculate version number
-    const existingVersions = documents.value
-      .filter(d => d.originalFileName === file.name)
-      .map(d => parseInt(d.version))
-    const nextVersion = existingVersions.length > 0
-      ? Math.max(...existingVersions) + 1
-      : 1
+    // Convert file to base64
+    const base64Content = await convertFileToBase64(file)
 
-    // Generate stored filename
-    const today = new Date()
-    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '')
-    const topicSlug = (props.topic || 'TOPIC').replace(/\s+/g, '_').substring(0, 20)
-    const versionStr = nextVersion.toString().padStart(2, '0')
-    const fileExt = file.name.split('.').pop()
-    const storedFileName = `${props.decisionBoardAbbr}${dateStr}${topicSlug}.v${versionStr}.${fileExt}`
+    if (props.meetingItemId) {
+      // Upload via API if meeting item already exists
+      const response = await meetingItemsApi.uploadDocument(props.meetingItemId, {
+        fileName: file.name,
+        contentType: file.type,
+        base64Content: base64Content
+      })
 
-    // TODO: Upload to API
-    // const formData = new FormData()
-    // formData.append('file', file)
-    // formData.append('storedFileName', storedFileName)
-    // const response = await api.uploadDocument(props.meetingItemId, formData)
+      const newDoc = {
+        id: response.documentId,
+        originalFileName: file.name,
+        fileName: file.name,
+        storedFileName: response.storedFileName,
+        version: response.versionNumber,
+        uploadDate: new Date().toISOString(),
+        fileSize: file.size,
+        contentType: file.type
+      }
 
-    // Mock: Add to local array
-    const newDoc = {
-      id: Date.now().toString(),
-      originalFileName: file.name,
-      storedFileName,
-      version: versionStr,
-      uploadDate: new Date().toISOString(),
-      fileSize: file.size
+      documents.value.push(newDoc)
+
+      $q.notify({
+        type: 'positive',
+        message: 'Document uploaded successfully',
+        caption: response.storedFileName
+      })
+    } else {
+      // Store locally until meeting item is created
+      const newDoc = {
+        id: Date.now().toString(),
+        fileName: file.name,
+        originalFileName: file.name,
+        contentType: file.type,
+        base64Content: base64Content,
+        fileSize: file.size,
+        uploadDate: new Date().toISOString()
+      }
+
+      documents.value.push(newDoc)
+
+      $q.notify({
+        type: 'positive',
+        message: 'Document added (will be uploaded on submit)',
+        caption: file.name
+      })
     }
 
-    documents.value.push(newDoc)
-
-    $q.notify({
-      type: 'positive',
-      message: 'Document uploaded successfully',
-      caption: storedFileName
-    })
-
-    emit('documents-updated', documents.value.length)
+    // Emit updated documents array
+    emit('documents-updated', documents.value)
     selectedFile.value = null
 
   } catch (error) {
@@ -224,21 +248,34 @@ const handleUpload = async () => {
       message: 'Failed to upload document',
       caption: error.message
     })
+  } finally {
+    uploading.value = false
   }
 }
 
 const handleDownload = async (doc) => {
   try {
-    // TODO: Download from API
-    // await api.downloadDocument(doc.id)
+    const blob = await meetingItemsApi.downloadDocument(doc.id)
+
+    // Create download link
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = doc.originalFileName || doc.fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
     $q.notify({
-      type: 'info',
-      message: `Downloading ${doc.originalFileName}...`
+      type: 'positive',
+      message: `Downloaded ${doc.originalFileName || doc.fileName}`
     })
   } catch (error) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to download document'
+      message: 'Failed to download document',
+      caption: error.message
     })
   }
 }
@@ -246,14 +283,17 @@ const handleDownload = async (doc) => {
 const handleDelete = (doc) => {
   $q.dialog({
     title: 'Confirm Delete',
-    message: `Are you sure you want to delete "${doc.originalFileName}" (v${doc.version})?`,
+    message: `Are you sure you want to delete "${doc.originalFileName || doc.fileName}"${doc.version ? ` (v${doc.version})` : ''}?`,
     cancel: true,
     persistent: true
   }).onOk(async () => {
     try {
-      // TODO: Delete via API
-      // await api.deleteDocument(doc.id)
+      if (props.meetingItemId && doc.id) {
+        // Delete via API if document is already uploaded
+        await meetingItemsApi.deleteDocument(doc.id)
+      }
 
+      // Remove from local array
       documents.value = documents.value.filter(d => d.id !== doc.id)
 
       $q.notify({
@@ -261,11 +301,12 @@ const handleDelete = (doc) => {
         message: 'Document deleted successfully'
       })
 
-      emit('documents-updated', documents.value.length)
+      emit('documents-updated', documents.value)
     } catch (error) {
       $q.notify({
         type: 'negative',
-        message: 'Failed to delete document'
+        message: 'Failed to delete document',
+        caption: error.message
       })
     }
   })

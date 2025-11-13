@@ -249,6 +249,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import DocumentUpload from '../components/DocumentUpload.vue'
+import { meetingItemsApi } from '../api/meetingItems'
 
 const router = useRouter()
 const $q = useQuasar()
@@ -263,9 +264,12 @@ const activeTab = ref('general')
 const saving = ref(false)
 const submitting = ref(false)
 const documentCount = ref(0)
+const loading = ref(false)
 
 const meetingItem = ref({
   id: null,
+  decisionBoardId: 'board-123', // TODO: Get from context/route
+  templateId: 'template-456', // TODO: Get from decision board
   topic: '',
   purpose: '',
   outcome: null,
@@ -275,20 +279,27 @@ const meetingItem = ref({
   ownerPresenter: '',
   sponsor: '',
   status: 'Submitted',
-  submissionDate: null
+  submissionDate: null,
+  fieldValues: {}, // Dynamic fields from template
+  documents: []
 })
+
+const template = ref(null)
+const activeFields = ref([])
+const historicalFields = ref([])
 
 // Options
 const outcomeOptions = ['Decision', 'Discussion', 'Information']
 const statusOptions = ['Submitted', 'Proposed', 'Planned', 'Discussed', 'Denied']
-const decisionBoardAbbr = ref('DB') // This should come from context/API
+const decisionBoardAbbr = ref('DB')
+const decisionBoardName = ref('')
 
 // Computed
 const isEditMode = computed(() => !!props.id)
 
 const canChangeStatus = computed(() => {
   // Only secretary/admin can change status
-  // This should check user permissions
+  // This should check user permissions from auth context
   return false
 })
 
@@ -318,8 +329,11 @@ const isFormValid = computed(() => {
 // Lifecycle
 onMounted(async () => {
   // Initialize requestor from current user
-  meetingItem.value.requestor = 'USER123' // Get from auth context
+  meetingItem.value.requestor = 'USER123' // TODO: Get from auth context
   meetingItem.value.ownerPresenter = meetingItem.value.requestor
+
+  // Load template for decision board
+  await loadTemplate()
 
   if (isEditMode.value) {
     await loadMeetingItem(props.id)
@@ -327,24 +341,159 @@ onMounted(async () => {
 })
 
 // Methods
+const loadTemplate = async () => {
+  try {
+    loading.value = true
+    const response = await meetingItemsApi.getTemplateByDecisionBoard(meetingItem.value.decisionBoardId)
+
+    template.value = response
+    meetingItem.value.templateId = response.templateId
+
+    // Initialize field values from template
+    response.fieldDefinitions.forEach(field => {
+      if (field.isRequired || field.options?.some(opt => opt.isDefault)) {
+        const defaultOption = field.options?.find(opt => opt.isDefault)
+        meetingItem.value.fieldValues[field.fieldName] = defaultOption?.value || null
+      }
+    })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to load template',
+      caption: error.message
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
 const loadMeetingItem = async (id) => {
   try {
-    // TODO: API call to fetch meeting item
-    // const response = await api.getMeetingItem(id)
-    // meetingItem.value = response.data
+    loading.value = true
+    const response = await meetingItemsApi.getMeetingItem(id)
+
+    // Map response to form structure
+    meetingItem.value.id = response.id
+    meetingItem.value.decisionBoardId = response.decisionBoardId
+    meetingItem.value.templateId = response.templateId
+    meetingItem.value.topic = response.topic
+    meetingItem.value.purpose = response.purpose
+    meetingItem.value.outcome = response.outcome
+    meetingItem.value.digitalProduct = response.digitalProduct
+    meetingItem.value.duration = response.durationMinutes
+    meetingItem.value.requestor = response.requestorUserId
+    meetingItem.value.ownerPresenter = response.ownerPresenterUserId
+    meetingItem.value.sponsor = response.sponsorUserId
+    meetingItem.value.status = response.status
+    meetingItem.value.submissionDate = response.submissionDate
+
+    decisionBoardName.value = response.decisionBoardName
+
+    // Map active fields
+    activeFields.value = response.activeFields || []
+    response.activeFields?.forEach(field => {
+      meetingItem.value.fieldValues[field.fieldName] = getFieldValue(field)
+    })
+
+    // Store historical fields for display
+    historicalFields.value = response.historicalFields || []
+
+    // Documents
+    meetingItem.value.documents = response.documents || []
+    documentCount.value = meetingItem.value.documents.length
   } catch (error) {
     $q.notify({
       type: 'negative',
       message: 'Failed to load meeting item',
       caption: error.message
     })
+  } finally {
+    loading.value = false
   }
+}
+
+const getFieldValue = (field) => {
+  // Extract value based on field type
+  if (field.textValue !== null) return field.textValue
+  if (field.numberValue !== null) return field.numberValue
+  if (field.dateValue !== null) return field.dateValue
+  if (field.booleanValue !== null) return field.booleanValue
+  if (field.jsonValue !== null) return JSON.parse(field.jsonValue)
+  return null
+}
+
+const mapFieldValuesToDto = () => {
+  // Convert field values object to FieldValueDto array
+  const fieldValues = []
+
+  Object.entries(meetingItem.value.fieldValues).forEach(([fieldName, value]) => {
+    if (value === null || value === undefined) return
+
+    const fieldDef = template.value?.fieldDefinitions?.find(f => f.fieldName === fieldName)
+    if (!fieldDef) return
+
+    const dto = {
+      fieldName,
+      textValue: null,
+      numberValue: null,
+      dateValue: null,
+      booleanValue: null,
+      jsonValue: null
+    }
+
+    // Map to correct typed property based on field type
+    switch (fieldDef.fieldType) {
+      case 'Text':
+      case 'Email':
+      case 'Dropdown':
+        dto.textValue = value
+        break
+      case 'Number':
+        dto.numberValue = typeof value === 'number' ? value : parseFloat(value)
+        break
+      case 'Date':
+        dto.dateValue = value instanceof Date ? value.toISOString() : value
+        break
+      case 'Boolean':
+        dto.booleanValue = Boolean(value)
+        break
+      case 'MultiSelect':
+        dto.jsonValue = JSON.stringify(Array.isArray(value) ? value : [value])
+        break
+      default:
+        dto.textValue = String(value)
+    }
+
+    fieldValues.push(dto)
+  })
+
+  return fieldValues
 }
 
 const handleSaveDraft = async () => {
   saving.value = true
   try {
-    // TODO: API call to save draft
+    const payload = {
+      decisionBoardId: meetingItem.value.decisionBoardId,
+      templateId: meetingItem.value.templateId,
+      topic: meetingItem.value.topic,
+      purpose: meetingItem.value.purpose,
+      outcome: meetingItem.value.outcome,
+      digitalProduct: meetingItem.value.digitalProduct,
+      durationMinutes: meetingItem.value.duration,
+      ownerPresenterUserId: meetingItem.value.ownerPresenter,
+      sponsorUserId: meetingItem.value.sponsor || null,
+      fieldValues: mapFieldValuesToDto(),
+      documents: []
+    }
+
+    if (isEditMode.value) {
+      await meetingItemsApi.updateMeetingItem(meetingItem.value.id, payload)
+    } else {
+      const response = await meetingItemsApi.createMeetingItem(payload)
+      meetingItem.value.id = response.meetingItemId
+    }
+
     $q.notify({
       type: 'positive',
       message: 'Draft saved successfully'
@@ -371,16 +520,37 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    meetingItem.value.submissionDate = new Date().toISOString()
-    meetingItem.value.status = 'Submitted'
+    const payload = {
+      decisionBoardId: meetingItem.value.decisionBoardId,
+      templateId: meetingItem.value.templateId,
+      topic: meetingItem.value.topic,
+      purpose: meetingItem.value.purpose,
+      outcome: meetingItem.value.outcome,
+      digitalProduct: meetingItem.value.digitalProduct,
+      durationMinutes: meetingItem.value.duration,
+      ownerPresenterUserId: meetingItem.value.ownerPresenter,
+      sponsorUserId: meetingItem.value.sponsor || null,
+      fieldValues: mapFieldValuesToDto(),
+      documents: meetingItem.value.documents.map(doc => ({
+        fileName: doc.fileName,
+        contentType: doc.contentType,
+        base64Content: doc.base64Content
+      }))
+    }
 
-    // TODO: API call to submit meeting item
-    // const response = await api.submitMeetingItem(meetingItem.value)
-
-    $q.notify({
-      type: 'positive',
-      message: 'Meeting item submitted successfully'
-    })
+    if (isEditMode.value) {
+      await meetingItemsApi.updateMeetingItem(meetingItem.value.id, payload)
+      $q.notify({
+        type: 'positive',
+        message: 'Meeting item updated successfully'
+      })
+    } else {
+      await meetingItemsApi.createMeetingItem(payload)
+      $q.notify({
+        type: 'positive',
+        message: 'Meeting item submitted successfully'
+      })
+    }
 
     router.push('/meeting-items')
   } catch (error) {
@@ -398,8 +568,9 @@ const handleCancel = () => {
   router.push('/meeting-items')
 }
 
-const handleDocumentsUpdate = (count) => {
-  documentCount.value = count
+const handleDocumentsUpdate = (documents) => {
+  meetingItem.value.documents = documents
+  documentCount.value = documents.length
 }
 </script>
 
