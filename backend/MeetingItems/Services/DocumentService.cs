@@ -22,6 +22,7 @@ public interface IDocumentService
     Task<Document> UploadNewVersionAsync(
         string meetingItemId,
         string baseDocumentId,
+        int version,
         DocumentUploadDto document,
         string uploadedBy,
         CancellationToken cancellationToken);
@@ -67,23 +68,15 @@ public class DocumentService : IDocumentService
             using var stream = new MemoryStream(fileContent);
             await client.UploadAsync(storagePath, stream, cancellationToken);
 
-            // Create document entity
-            return new Document
-            {
-                Id = Guid.NewGuid().ToString(),
-                MeetingItemId = meetingItemId,
-                OriginalFileName = docDto.FileName,
-                FileName = fileName,
-                StoragePath = storagePath,
-                FileSize = fileContent.Length,
-                ContentType = docDto.ContentType,
-                Version = 1,
-                BaseDocumentId = null,
-                IsLatestVersion = true,
-                UploadDate = DateTime.UtcNow,
-                UploadedBy = uploadedBy,
-                IsDeleted = false
-            };
+            // Create document entity using factory method
+            return Document.Create(
+                meetingItemId,
+                docDto.FileName,
+                fileName,
+                storagePath,
+                fileContent.Length,
+                docDto.ContentType,
+                uploadedBy);
         });
 
         return (await Task.WhenAll(uploadTasks)).ToList();
@@ -92,6 +85,7 @@ public class DocumentService : IDocumentService
     public async Task<Document> UploadNewVersionAsync(
         string meetingItemId,
         string baseDocumentId,
+        int version,
         DocumentUploadDto document,
         string uploadedBy,
         CancellationToken cancellationToken)
@@ -110,23 +104,17 @@ public class DocumentService : IDocumentService
         using var stream = new MemoryStream(fileContent);
         await client.UploadAsync(storagePath, stream, cancellationToken);
 
-        // Create new version document
-        return new Document
-        {
-            Id = Guid.NewGuid().ToString(),
-            MeetingItemId = meetingItemId,
-            OriginalFileName = document.FileName,
-            FileName = fileName,
-            StoragePath = storagePath,
-            FileSize = fileContent.Length,
-            ContentType = document.ContentType,
-            Version = 0, // Will be set by caller based on previous version
-            BaseDocumentId = baseDocumentId,
-            IsLatestVersion = true,
-            UploadDate = DateTime.UtcNow,
-            UploadedBy = uploadedBy,
-            IsDeleted = false
-        };
+        // Create new version document using factory method
+        return Document.CreateVersion(
+            meetingItemId,
+            baseDocumentId,
+            version,
+            document.FileName,
+            fileName,
+            storagePath,
+            fileContent.Length,
+            document.ContentType,
+            uploadedBy);
     }
 
     public async Task DeleteDocumentAsync(
@@ -136,11 +124,8 @@ public class DocumentService : IDocumentService
     {
         var client = _containerClientFactory.GetBlobContainerClient(ContainerName);
 
-        // Soft delete: mark as deleted but keep in database
-        document.IsDeleted = true;
-        document.DeletedDate = DateTime.UtcNow;
-        document.DeletedBy = deletedBy;
-        document.IsLatestVersion = false;
+        // Soft delete using domain method
+        document.MarkAsDeleted(deletedBy);
 
         // Also delete from blob storage
         await client.DeleteAsync(document.StoragePath, cancellationToken);

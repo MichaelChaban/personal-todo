@@ -142,25 +142,19 @@ public class CreateMeetingItem
         {
             var currentUserId = userSessionProvider.GetUserId() ?? throw new UnauthorizedAccessException();
 
-            // Create meeting item entity
-            var meetingItem = new MeetingItem
-            {
-                Id = Guid.NewGuid().ToString(),
-                DecisionBoardId = command.DecisionBoardId,
-                TemplateId = command.TemplateId,
-                Topic = command.Topic,
-                Purpose = command.Purpose,
-                Outcome = command.Outcome,
-                DigitalProduct = command.DigitalProduct,
-                Duration = command.Duration,
-                Requestor = command.Requestor,
-                OwnerPresenter = command.OwnerPresenter,
-                Sponsor = command.Sponsor,
-                SubmissionDate = DateTime.UtcNow,
-                Status = "Draft",
-                CreatedAt = DateTime.UtcNow,
-                CreatedBy = currentUserId
-            };
+            // Create meeting item entity using factory method
+            var meetingItem = MeetingItem.Create(
+                command.DecisionBoardId,
+                command.TemplateId,
+                command.Topic,
+                command.Purpose,
+                command.Outcome,
+                command.DigitalProduct,
+                command.Duration,
+                command.Requestor,
+                command.OwnerPresenter,
+                command.Sponsor,
+                currentUserId);
 
             // Upload documents if provided (new meeting item - no versioning)
             var uploadedDocuments = new List<DocumentUploadResponse>();

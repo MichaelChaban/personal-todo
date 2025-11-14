@@ -155,17 +155,17 @@ public class UpdateMeetingItem
                 return BusinessResult.NotFound<Response>(BusinessErrorMessage.NotFound);
             }
 
-            // Update meeting item properties
-            meetingItem.Topic = command.Topic;
-            meetingItem.Purpose = command.Purpose;
-            meetingItem.Outcome = command.Outcome;
-            meetingItem.DigitalProduct = command.DigitalProduct;
-            meetingItem.Duration = command.Duration;
-            meetingItem.OwnerPresenter = command.OwnerPresenter;
-            meetingItem.Sponsor = command.Sponsor;
-            meetingItem.Status = command.Status;
-            meetingItem.UpdatedAt = DateTime.UtcNow;
-            meetingItem.UpdatedBy = currentUserId;
+            // Update meeting item using domain method
+            meetingItem.Update(
+                command.Topic,
+                command.Purpose,
+                command.Outcome,
+                command.DigitalProduct,
+                command.Duration,
+                command.OwnerPresenter,
+                command.Sponsor,
+                command.Status,
+                currentUserId);
 
             // Delete documents if specified (soft delete with blob removal)
             var deletedDocumentIds = new List<string>();
@@ -212,24 +212,25 @@ public class UpdateMeetingItem
                     var baseDocument = meetingItem.Documents.FirstOrDefault(d => d.Id == versionUpdate.BaseDocumentId && !d.IsDeleted);
                     if (baseDocument != null)
                     {
-                        // Mark old version as not latest
-                        baseDocument.IsLatestVersion = false;
+                        // Mark old version as not latest using domain method
+                        baseDocument.MarkAsOldVersion();
 
                         // Get all versions of this document to determine next version number
                         var allVersions = meetingItem.Documents
                             .Where(d => (d.Id == versionUpdate.BaseDocumentId || d.BaseDocumentId == versionUpdate.BaseDocumentId) && !d.IsDeleted)
                             .ToList();
                         var maxVersion = allVersions.Max(d => d.Version);
+                        var nextVersion = maxVersion + 1;
 
                         // Upload new version
                         var newVersion = await documentService.UploadNewVersionAsync(
                             meetingItem.Id,
                             versionUpdate.BaseDocumentId,
+                            nextVersion,
                             versionUpdate.Document,
                             currentUserId,
                             cancellationToken);
 
-                        newVersion.Version = maxVersion + 1;
                         meetingItem.Documents.Add(newVersion);
 
                         versionedDocuments.Add(new DocumentUploadResponse(

@@ -36,6 +36,69 @@ public class MeetingItem
     public string CreatedBy { get; set; } = string.Empty;
     public DateTime? UpdatedAt { get; set; }
     public string? UpdatedBy { get; set; }
+
+    /// <summary>
+    /// Factory method to create a new MeetingItem
+    /// </summary>
+    public static MeetingItem Create(
+        string decisionBoardId,
+        string? templateId,
+        string topic,
+        string purpose,
+        string outcome,
+        string digitalProduct,
+        int duration,
+        string requestor,
+        string ownerPresenter,
+        string? sponsor,
+        string createdBy)
+    {
+        return new MeetingItem
+        {
+            Id = Guid.NewGuid().ToString(),
+            DecisionBoardId = decisionBoardId,
+            TemplateId = templateId,
+            Topic = topic,
+            Purpose = purpose,
+            Outcome = outcome,
+            DigitalProduct = digitalProduct,
+            Duration = duration,
+            Requestor = requestor,
+            OwnerPresenter = ownerPresenter,
+            Sponsor = sponsor,
+            SubmissionDate = DateTime.UtcNow,
+            Status = "Draft",
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = createdBy,
+            Documents = new List<Document>()
+        };
+    }
+
+    /// <summary>
+    /// Update the meeting item with new values
+    /// </summary>
+    public void Update(
+        string topic,
+        string purpose,
+        string outcome,
+        string digitalProduct,
+        int duration,
+        string ownerPresenter,
+        string? sponsor,
+        string status,
+        string updatedBy)
+    {
+        Topic = topic;
+        Purpose = purpose;
+        Outcome = outcome;
+        DigitalProduct = digitalProduct;
+        Duration = duration;
+        OwnerPresenter = ownerPresenter;
+        Sponsor = sponsor;
+        Status = status;
+        UpdatedAt = DateTime.UtcNow;
+        UpdatedBy = updatedBy;
+    }
 }
 
 public class Document
@@ -66,4 +129,85 @@ public class Document
     public DateTime? DeletedDate { get; set; }
     public string? DeletedBy { get; set; }
     public bool IsDeleted { get; set; } = false;
+
+    /// <summary>
+    /// Factory method to create a new document (Version 1)
+    /// </summary>
+    public static Document Create(
+        string meetingItemId,
+        string originalFileName,
+        string fileName,
+        string storagePath,
+        long fileSize,
+        string contentType,
+        string uploadedBy)
+    {
+        return new Document
+        {
+            Id = Guid.NewGuid().ToString(),
+            MeetingItemId = meetingItemId,
+            OriginalFileName = originalFileName,
+            FileName = fileName,
+            StoragePath = storagePath,
+            FileSize = fileSize,
+            ContentType = contentType,
+            Version = 1,
+            BaseDocumentId = null,
+            IsLatestVersion = true,
+            UploadDate = DateTime.UtcNow,
+            UploadedBy = uploadedBy,
+            IsDeleted = false
+        };
+    }
+
+    /// <summary>
+    /// Factory method to create a new version of an existing document
+    /// </summary>
+    public static Document CreateVersion(
+        string meetingItemId,
+        string baseDocumentId,
+        int version,
+        string originalFileName,
+        string fileName,
+        string storagePath,
+        long fileSize,
+        string contentType,
+        string uploadedBy)
+    {
+        return new Document
+        {
+            Id = Guid.NewGuid().ToString(),
+            MeetingItemId = meetingItemId,
+            OriginalFileName = originalFileName,
+            FileName = fileName,
+            StoragePath = storagePath,
+            FileSize = fileSize,
+            ContentType = contentType,
+            Version = version,
+            BaseDocumentId = baseDocumentId,
+            IsLatestVersion = true,
+            UploadDate = DateTime.UtcNow,
+            UploadedBy = uploadedBy,
+            IsDeleted = false
+        };
+    }
+
+    /// <summary>
+    /// Mark this document as deleted (soft delete)
+    /// </summary>
+    public void MarkAsDeleted(string deletedBy)
+    {
+        IsDeleted = true;
+        DeletedDate = DateTime.UtcNow;
+        DeletedBy = deletedBy;
+        IsLatestVersion = false;
+    }
+
+    /// <summary>
+    /// Mark this document as not the latest version
+    /// </summary>
+    public void MarkAsOldVersion()
+    {
+        IsLatestVersion = false;
+    }
 }
