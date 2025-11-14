@@ -3,8 +3,10 @@ using FluentValidation;
 using MediatR;
 using MeetingItemsApp.Common;
 using MeetingItemsApp.Common.Abstractions;
+using MeetingItemsApp.MeetingItems.DTOs;
 using MeetingItemsApp.MeetingItems.Models;
 using MeetingItemsApp.MeetingItems.Repositories;
+using MeetingItemsApp.MeetingItems.Services;
 
 namespace MeetingItemsApp.MeetingItems.Features;
 
@@ -14,16 +16,13 @@ public class CreateMeetingItem
     {
         private readonly IDecisionBoardRepository _decisionBoardRepository;
         private readonly ITemplateRepository _templateRepository;
-        private readonly IUserSessionProvider _userSessionProvider;
 
         public Validator(
             IDecisionBoardRepository decisionBoardRepository,
-            ITemplateRepository templateRepository,
-            IUserSessionProvider userSessionProvider)
+            ITemplateRepository templateRepository)
         {
             _decisionBoardRepository = decisionBoardRepository ?? throw new ArgumentNullException(nameof(decisionBoardRepository));
             _templateRepository = templateRepository ?? throw new ArgumentNullException(nameof(templateRepository));
-            _userSessionProvider = userSessionProvider ?? throw new ArgumentNullException(nameof(userSessionProvider));
 
             // Decision Board validation
             RuleFor(c => c.DecisionBoardId)
@@ -96,7 +95,7 @@ public class CreateMeetingItem
 
             // Document validation
             RuleForEach(c => c.Documents)
-                .SetValidator(new DocumentValidator()!)
+                .SetValidator(new DocumentUploadValidator()!)
                 .When(c => c.Documents?.Any() == true);
         }
 
@@ -116,12 +115,6 @@ public class CreateMeetingItem
         }
     }
 
-    public record DocumentDto(
-        string FileName,
-        string ContentType,
-        long FileSize,
-        string Base64Content);
-
     public record Command(
         string DecisionBoardId,
         string? TemplateId,
@@ -133,19 +126,15 @@ public class CreateMeetingItem
         string Requestor,
         string OwnerPresenter,
         string? Sponsor,
-        List<DocumentDto>? Documents = null) : ICommand<Response>;
+        List<DocumentUploadDto>? Documents = null) : ICommand<Response>;
 
-    public record Response(string MeetingItemId, List<DocumentResponseDto> UploadedDocuments);
-
-    public record DocumentResponseDto(
-        string Id,
-        string FileName,
-        long FileSize,
-        string ContentType);
+    public record Response(
+        string MeetingItemId,
+        List<DocumentUploadResponse> UploadedDocuments);
 
     internal class Handler(
         IMeetingItemRepository meetingItemRepository,
-        IBlobContainerClientFactory containerClientFactory,
+        IDocumentService documentService,
         IUserSessionProvider userSessionProvider,
         IUnitOfWork unitOfWork) : ICommandHandler<Command, Response>
     {
@@ -173,20 +162,25 @@ public class CreateMeetingItem
                 CreatedBy = currentUserId
             };
 
-            // Upload documents if provided
-            var uploadedDocuments = new List<DocumentResponseDto>();
+            // Upload documents if provided (new meeting item - no versioning)
+            var uploadedDocuments = new List<DocumentUploadResponse>();
             if (command.Documents?.Any() == true)
             {
-                var client = containerClientFactory.GetBlobContainerClient("meeting-item-documents");
-                var documents = await UploadDocumentsAsync(client, meetingItem.Id, command.Documents, currentUserId, cancellationToken);
+                var documents = await documentService.UploadDocumentsAsync(
+                    meetingItem.Id,
+                    command.Documents,
+                    currentUserId,
+                    cancellationToken);
 
                 meetingItem.Documents.AddRange(documents);
 
-                uploadedDocuments.AddRange(documents.Select(d => new DocumentResponseDto(
+                uploadedDocuments.AddRange(documents.Select(d => new DocumentUploadResponse(
                     d.Id,
                     d.FileName,
+                    d.OriginalFileName,
                     d.FileSize,
-                    d.ContentType)));
+                    d.ContentType,
+                    d.Version)));
             }
 
             // Save to repository
@@ -195,54 +189,14 @@ public class CreateMeetingItem
 
             return BusinessResult.Success(new Response(meetingItem.Id, uploadedDocuments));
         }
-
-        private static async Task<List<Document>> UploadDocumentsAsync(
-            IBlobContainerClient client,
-            string meetingItemId,
-            IEnumerable<DocumentDto> documentDtos,
-            string uploadedBy,
-            CancellationToken cancellationToken)
-        {
-            var uploadTasks = documentDtos.Select(async docDto =>
-            {
-                // Extract base64 content (remove data URL prefix if present)
-                var base64Content = docDto.Base64Content.Contains(',')
-                    ? docDto.Base64Content.Split(',')[1]
-                    : docDto.Base64Content;
-
-                var fileContent = Convert.FromBase64String(base64Content);
-
-                // Generate blob name
-                var blobName = Guid.NewGuid().ToString();
-
-                // Upload to blob storage
-                using var stream = new MemoryStream(fileContent);
-                await client.UploadAsync(blobName, stream, cancellationToken);
-
-                // Create document entity
-                return new Document
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    MeetingItemId = meetingItemId,
-                    FileName = docDto.FileName,
-                    FilePath = blobName,
-                    FileSize = fileContent.Length,
-                    ContentType = docDto.ContentType,
-                    UploadDate = DateTime.UtcNow,
-                    UploadedBy = uploadedBy
-                };
-            });
-
-            return (await Task.WhenAll(uploadTasks)).ToList();
-        }
     }
 
     /// <summary>
     /// Validator for document uploads
     /// </summary>
-    internal class DocumentValidator : AbstractValidator<DocumentDto>
+    internal class DocumentUploadValidator : AbstractValidator<DocumentUploadDto>
     {
-        public DocumentValidator()
+        public DocumentUploadValidator()
         {
             RuleFor(d => d.FileName)
                 .NotEmpty()

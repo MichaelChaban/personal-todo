@@ -3,8 +3,10 @@ using FluentValidation;
 using MediatR;
 using MeetingItemsApp.Common;
 using MeetingItemsApp.Common.Abstractions;
+using MeetingItemsApp.MeetingItems.DTOs;
 using MeetingItemsApp.MeetingItems.Models;
 using MeetingItemsApp.MeetingItems.Repositories;
+using MeetingItemsApp.MeetingItems.Services;
 
 namespace MeetingItemsApp.MeetingItems.Features;
 
@@ -13,14 +15,10 @@ public class UpdateMeetingItem
     public class Validator : AbstractValidator<Command>
     {
         private readonly IMeetingItemRepository _meetingItemRepository;
-        private readonly IUserSessionProvider _userSessionProvider;
 
-        public Validator(
-            IMeetingItemRepository meetingItemRepository,
-            IUserSessionProvider userSessionProvider)
+        public Validator(IMeetingItemRepository meetingItemRepository)
         {
             _meetingItemRepository = meetingItemRepository ?? throw new ArgumentNullException(nameof(meetingItemRepository));
-            _userSessionProvider = userSessionProvider ?? throw new ArgumentNullException(nameof(userSessionProvider));
 
             // Meeting Item ID validation
             RuleFor(c => c.Id)
@@ -87,8 +85,13 @@ public class UpdateMeetingItem
 
             // Document validation - new documents to upload
             RuleForEach(c => c.NewDocuments)
-                .SetValidator(new CreateMeetingItem.DocumentValidator()!)
+                .SetValidator(new CreateMeetingItem.DocumentUploadValidator()!)
                 .When(c => c.NewDocuments?.Any() == true);
+
+            // Document version updates
+            RuleForEach(c => c.DocumentVersions)
+                .SetValidator(new DocumentVersionValidator()!)
+                .When(c => c.DocumentVersions?.Any() == true);
 
             // Document deletion validation
             RuleForEach(c => c.DocumentsToDelete)
@@ -110,6 +113,10 @@ public class UpdateMeetingItem
         }
     }
 
+    public record DocumentVersionUpdate(
+        string BaseDocumentId,
+        DocumentUploadDto Document);
+
     public record Command(
         string Id,
         string Topic,
@@ -120,17 +127,19 @@ public class UpdateMeetingItem
         string OwnerPresenter,
         string? Sponsor,
         string Status,
-        List<CreateMeetingItem.DocumentDto>? NewDocuments = null,
+        List<DocumentUploadDto>? NewDocuments = null,
+        List<DocumentVersionUpdate>? DocumentVersions = null,
         List<string>? DocumentsToDelete = null) : ICommand<Response>;
 
     public record Response(
         string MeetingItemId,
-        List<CreateMeetingItem.DocumentResponseDto> NewlyUploadedDocuments,
+        List<DocumentUploadResponse> NewlyUploadedDocuments,
+        List<DocumentUploadResponse> VersionedDocuments,
         List<string> DeletedDocumentIds);
 
     internal class Handler(
         IMeetingItemRepository meetingItemRepository,
-        IBlobContainerClientFactory containerClientFactory,
+        IDocumentService documentService,
         IUserSessionProvider userSessionProvider,
         IUnitOfWork unitOfWork) : ICommandHandler<Command, Response>
     {
@@ -158,40 +167,80 @@ public class UpdateMeetingItem
             meetingItem.UpdatedAt = DateTime.UtcNow;
             meetingItem.UpdatedBy = currentUserId;
 
-            var client = containerClientFactory.GetBlobContainerClient("meeting-item-documents");
-
-            // Delete documents if specified
+            // Delete documents if specified (soft delete with blob removal)
             var deletedDocumentIds = new List<string>();
             if (command.DocumentsToDelete?.Any() == true)
             {
                 foreach (var documentId in command.DocumentsToDelete)
                 {
-                    var document = meetingItem.Documents.FirstOrDefault(d => d.Id == documentId);
+                    var document = meetingItem.Documents.FirstOrDefault(d => d.Id == documentId && !d.IsDeleted);
                     if (document != null)
                     {
-                        // Delete from blob storage
-                        await client.DeleteAsync(document.FilePath, cancellationToken);
-
-                        // Remove from collection
-                        meetingItem.Documents.Remove(document);
+                        await documentService.DeleteDocumentAsync(document, currentUserId, cancellationToken);
                         deletedDocumentIds.Add(documentId);
                     }
                 }
             }
 
-            // Upload new documents if provided
-            var uploadedDocuments = new List<CreateMeetingItem.DocumentResponseDto>();
+            // Upload new documents (brand new documents)
+            var newUploadedDocuments = new List<DocumentUploadResponse>();
             if (command.NewDocuments?.Any() == true)
             {
-                var newDocuments = await UploadDocumentsAsync(client, meetingItem.Id, command.NewDocuments, currentUserId, cancellationToken);
+                var newDocuments = await documentService.UploadDocumentsAsync(
+                    meetingItem.Id,
+                    command.NewDocuments,
+                    currentUserId,
+                    cancellationToken);
 
                 meetingItem.Documents.AddRange(newDocuments);
 
-                uploadedDocuments.AddRange(newDocuments.Select(d => new CreateMeetingItem.DocumentResponseDto(
+                newUploadedDocuments.AddRange(newDocuments.Select(d => new DocumentUploadResponse(
                     d.Id,
                     d.FileName,
+                    d.OriginalFileName,
                     d.FileSize,
-                    d.ContentType)));
+                    d.ContentType,
+                    d.Version)));
+            }
+
+            // Upload new versions of existing documents
+            var versionedDocuments = new List<DocumentUploadResponse>();
+            if (command.DocumentVersions?.Any() == true)
+            {
+                foreach (var versionUpdate in command.DocumentVersions)
+                {
+                    var baseDocument = meetingItem.Documents.FirstOrDefault(d => d.Id == versionUpdate.BaseDocumentId && !d.IsDeleted);
+                    if (baseDocument != null)
+                    {
+                        // Mark old version as not latest
+                        baseDocument.IsLatestVersion = false;
+
+                        // Get all versions of this document to determine next version number
+                        var allVersions = meetingItem.Documents
+                            .Where(d => (d.Id == versionUpdate.BaseDocumentId || d.BaseDocumentId == versionUpdate.BaseDocumentId) && !d.IsDeleted)
+                            .ToList();
+                        var maxVersion = allVersions.Max(d => d.Version);
+
+                        // Upload new version
+                        var newVersion = await documentService.UploadNewVersionAsync(
+                            meetingItem.Id,
+                            versionUpdate.BaseDocumentId,
+                            versionUpdate.Document,
+                            currentUserId,
+                            cancellationToken);
+
+                        newVersion.Version = maxVersion + 1;
+                        meetingItem.Documents.Add(newVersion);
+
+                        versionedDocuments.Add(new DocumentUploadResponse(
+                            newVersion.Id,
+                            newVersion.FileName,
+                            newVersion.OriginalFileName,
+                            newVersion.FileSize,
+                            newVersion.ContentType,
+                            newVersion.Version));
+                    }
+                }
             }
 
             // Save changes
@@ -200,48 +249,24 @@ public class UpdateMeetingItem
 
             return BusinessResult.Success(new Response(
                 meetingItem.Id,
-                uploadedDocuments,
+                newUploadedDocuments,
+                versionedDocuments,
                 deletedDocumentIds));
         }
+    }
 
-        private static async Task<List<Document>> UploadDocumentsAsync(
-            IBlobContainerClient client,
-            string meetingItemId,
-            IEnumerable<CreateMeetingItem.DocumentDto> documentDtos,
-            string uploadedBy,
-            CancellationToken cancellationToken)
+    internal class DocumentVersionValidator : AbstractValidator<DocumentVersionUpdate>
+    {
+        public DocumentVersionValidator()
         {
-            var uploadTasks = documentDtos.Select(async docDto =>
-            {
-                // Extract base64 content (remove data URL prefix if present)
-                var base64Content = docDto.Base64Content.Contains(',')
-                    ? docDto.Base64Content.Split(',')[1]
-                    : docDto.Base64Content;
+            RuleFor(v => v.BaseDocumentId)
+                .NotEmpty()
+                .WithMessage(BusinessErrorMessage.Required);
 
-                var fileContent = Convert.FromBase64String(base64Content);
-
-                // Generate blob name
-                var blobName = Guid.NewGuid().ToString();
-
-                // Upload to blob storage
-                using var stream = new MemoryStream(fileContent);
-                await client.UploadAsync(blobName, stream, cancellationToken);
-
-                // Create document entity
-                return new Document
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    MeetingItemId = meetingItemId,
-                    FileName = docDto.FileName,
-                    FilePath = blobName,
-                    FileSize = fileContent.Length,
-                    ContentType = docDto.ContentType,
-                    UploadDate = DateTime.UtcNow,
-                    UploadedBy = uploadedBy
-                };
-            });
-
-            return (await Task.WhenAll(uploadTasks)).ToList();
+            RuleFor(v => v.Document)
+                .NotNull()
+                .WithMessage(BusinessErrorMessage.Required)
+                .SetValidator(new CreateMeetingItem.DocumentUploadValidator());
         }
     }
 }
