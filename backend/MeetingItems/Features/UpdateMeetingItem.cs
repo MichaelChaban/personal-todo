@@ -4,6 +4,7 @@ using MediatR;
 using MeetingItemsApp.Common;
 using MeetingItemsApp.Common.Abstractions;
 using MeetingItemsApp.MeetingItems.DTOs;
+using MeetingItemsApp.MeetingItems.Extensions;
 using MeetingItemsApp.MeetingItems.Models;
 using MeetingItemsApp.MeetingItems.Repositories;
 using MeetingItemsApp.MeetingItems.Services;
@@ -167,82 +168,24 @@ public class UpdateMeetingItem
                 command.Status,
                 currentUserId);
 
-            // Delete documents if specified (soft delete with blob removal)
-            var deletedDocumentIds = new List<string>();
-            if (command.DocumentsToDelete?.Any() == true)
-            {
-                foreach (var documentId in command.DocumentsToDelete)
-                {
-                    var document = meetingItem.Documents.FirstOrDefault(d => d.Id == documentId && !d.IsDeleted);
-                    if (document != null)
-                    {
-                        await documentService.DeleteDocumentAsync(document, currentUserId, cancellationToken);
-                        deletedDocumentIds.Add(documentId);
-                    }
-                }
-            }
+            // Handle document operations
+            var deletedDocumentIds = await HandleDocumentDeletionsAsync(
+                meetingItem,
+                command.DocumentsToDelete,
+                currentUserId,
+                cancellationToken);
 
-            // Upload new documents (brand new documents)
-            var newUploadedDocuments = new List<DocumentUploadResponse>();
-            if (command.NewDocuments?.Any() == true)
-            {
-                var newDocuments = await documentService.UploadDocumentsAsync(
-                    meetingItem.Id,
-                    command.NewDocuments,
-                    currentUserId,
-                    cancellationToken);
+            var newUploadedDocuments = await HandleNewDocumentUploadsAsync(
+                meetingItem,
+                command.NewDocuments,
+                currentUserId,
+                cancellationToken);
 
-                meetingItem.Documents.AddRange(newDocuments);
-
-                newUploadedDocuments.AddRange(newDocuments.Select(d => new DocumentUploadResponse(
-                    d.Id,
-                    d.FileName,
-                    d.OriginalFileName,
-                    d.FileSize,
-                    d.ContentType,
-                    d.Version)));
-            }
-
-            // Upload new versions of existing documents
-            var versionedDocuments = new List<DocumentUploadResponse>();
-            if (command.DocumentVersions?.Any() == true)
-            {
-                foreach (var versionUpdate in command.DocumentVersions)
-                {
-                    var baseDocument = meetingItem.Documents.FirstOrDefault(d => d.Id == versionUpdate.BaseDocumentId && !d.IsDeleted);
-                    if (baseDocument != null)
-                    {
-                        // Mark old version as not latest using domain method
-                        baseDocument.MarkAsOldVersion();
-
-                        // Get all versions of this document to determine next version number
-                        var allVersions = meetingItem.Documents
-                            .Where(d => (d.Id == versionUpdate.BaseDocumentId || d.BaseDocumentId == versionUpdate.BaseDocumentId) && !d.IsDeleted)
-                            .ToList();
-                        var maxVersion = allVersions.Max(d => d.Version);
-                        var nextVersion = maxVersion + 1;
-
-                        // Upload new version
-                        var newVersion = await documentService.UploadNewVersionAsync(
-                            meetingItem.Id,
-                            versionUpdate.BaseDocumentId,
-                            nextVersion,
-                            versionUpdate.Document,
-                            currentUserId,
-                            cancellationToken);
-
-                        meetingItem.Documents.Add(newVersion);
-
-                        versionedDocuments.Add(new DocumentUploadResponse(
-                            newVersion.Id,
-                            newVersion.FileName,
-                            newVersion.OriginalFileName,
-                            newVersion.FileSize,
-                            newVersion.ContentType,
-                            newVersion.Version));
-                    }
-                }
-            }
+            var versionedDocuments = await HandleDocumentVersionsAsync(
+                meetingItem,
+                command.DocumentVersions,
+                currentUserId,
+                cancellationToken);
 
             // Save changes
             await meetingItemRepository.UpdateAsync(meetingItem, cancellationToken);
@@ -253,6 +196,134 @@ public class UpdateMeetingItem
                 newUploadedDocuments,
                 versionedDocuments,
                 deletedDocumentIds));
+        }
+
+        /// <summary>
+        /// Handles deletion of documents (soft delete with blob removal)
+        /// </summary>
+        private async Task<List<string>> HandleDocumentDeletionsAsync(
+            MeetingItem meetingItem,
+            List<string>? documentsToDelete,
+            string currentUserId,
+            CancellationToken cancellationToken)
+        {
+            var deletedDocumentIds = new List<string>();
+
+            if (documentsToDelete?.Any() != true)
+            {
+                return deletedDocumentIds;
+            }
+
+            foreach (var documentId in documentsToDelete)
+            {
+                var document = meetingItem.Documents.FindActiveDocument(documentId);
+                if (document != null)
+                {
+                    await documentService.DeleteDocumentAsync(document, currentUserId, cancellationToken);
+                    deletedDocumentIds.Add(documentId);
+                }
+            }
+
+            return deletedDocumentIds;
+        }
+
+        /// <summary>
+        /// Handles upload of new documents (brand new documents, not versions)
+        /// </summary>
+        private async Task<List<DocumentUploadResponse>> HandleNewDocumentUploadsAsync(
+            MeetingItem meetingItem,
+            List<DocumentUploadDto>? newDocuments,
+            string currentUserId,
+            CancellationToken cancellationToken)
+        {
+            if (newDocuments?.Any() != true)
+            {
+                return new List<DocumentUploadResponse>();
+            }
+
+            var uploadedDocuments = await documentService.UploadDocumentsAsync(
+                meetingItem.Id,
+                newDocuments,
+                currentUserId,
+                cancellationToken);
+
+            meetingItem.Documents.AddRange(uploadedDocuments);
+
+            return uploadedDocuments.ToUploadResponses();
+        }
+
+        /// <summary>
+        /// Handles upload of new versions of existing documents
+        /// </summary>
+        private async Task<List<DocumentUploadResponse>> HandleDocumentVersionsAsync(
+            MeetingItem meetingItem,
+            List<DocumentVersionUpdate>? documentVersions,
+            string currentUserId,
+            CancellationToken cancellationToken)
+        {
+            var versionedDocuments = new List<DocumentUploadResponse>();
+
+            if (documentVersions?.Any() != true)
+            {
+                return versionedDocuments;
+            }
+
+            foreach (var versionUpdate in documentVersions)
+            {
+                var newVersion = await CreateDocumentVersionAsync(
+                    meetingItem,
+                    versionUpdate,
+                    currentUserId,
+                    cancellationToken);
+
+                if (newVersion != null)
+                {
+                    versionedDocuments.Add(newVersion);
+                }
+            }
+
+            return versionedDocuments;
+        }
+
+        /// <summary>
+        /// Creates a new version of an existing document
+        /// </summary>
+        private async Task<DocumentUploadResponse?> CreateDocumentVersionAsync(
+            MeetingItem meetingItem,
+            DocumentVersionUpdate versionUpdate,
+            string currentUserId,
+            CancellationToken cancellationToken)
+        {
+            var baseDocument = meetingItem.Documents.FindActiveDocument(versionUpdate.BaseDocumentId);
+            if (baseDocument == null)
+            {
+                return null;
+            }
+
+            // Mark old version as not latest using domain method
+            baseDocument.MarkAsOldVersion();
+
+            // Get next version number using extension method
+            var nextVersion = meetingItem.Documents.GetNextVersionNumber(versionUpdate.BaseDocumentId);
+
+            // Upload new version
+            var newVersion = await documentService.UploadNewVersionAsync(
+                meetingItem.Id,
+                versionUpdate.BaseDocumentId,
+                nextVersion,
+                versionUpdate.Document,
+                currentUserId,
+                cancellationToken);
+
+            meetingItem.Documents.Add(newVersion);
+
+            return new DocumentUploadResponse(
+                newVersion.Id,
+                newVersion.FileName,
+                newVersion.OriginalFileName,
+                newVersion.FileSize,
+                newVersion.ContentType,
+                newVersion.Version);
         }
     }
 
