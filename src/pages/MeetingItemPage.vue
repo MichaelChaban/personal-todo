@@ -25,6 +25,7 @@
         >
           <q-tab name="general" label="General" icon="info" />
           <q-tab name="details" label="Details" icon="description" />
+          <q-tab name="additional" label="Additional Details" icon="dashboard_customize" :badge="template?.fieldDefinitions?.length || undefined" />
           <q-tab name="documents" label="Documents" icon="attachment" :badge="documentCount || undefined" />
         </q-tabs>
 
@@ -33,173 +34,31 @@
         <q-tab-panels v-model="activeTab" animated>
           <!-- General Tab -->
           <q-tab-panel name="general" class="q-pa-lg">
-            <div class="form-section">
-              <h6 class="section-title">Basic Information</h6>
-
-              <div class="row q-col-gutter-md">
-                <div class="col-12">
-                  <q-input
-                    v-model="meetingItem.topic"
-                    label="Topic *"
-                    hint="Short title for the discussion"
-                    outlined
-                    dense
-                    :rules="[val => !!val || 'Topic is required']"
-                  />
-                </div>
-
-                <div class="col-12">
-                  <q-input
-                    v-model="meetingItem.purpose"
-                    label="Purpose *"
-                    hint="Full explanation of the discussion and requested decision"
-                    outlined
-                    dense
-                    type="textarea"
-                    rows="4"
-                    :rules="[val => !!val || 'Purpose is required']"
-                  />
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <q-select
-                    v-model="meetingItem.outcome"
-                    label="Outcome *"
-                    hint="Expected outcome type"
-                    outlined
-                    dense
-                    :options="outcomeOptions"
-                    :rules="[val => !!val || 'Outcome is required']"
-                  />
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <q-input
-                    v-model.number="meetingItem.duration"
-                    label="Duration (minutes) *"
-                    hint="Estimated discussion time"
-                    outlined
-                    dense
-                    type="number"
-                    min="1"
-                    :rules="[
-                      val => !!val || 'Duration is required',
-                      val => val > 0 || 'Duration must be positive'
-                    ]"
-                  />
-                </div>
-
-                <div class="col-12">
-                  <q-input
-                    v-model="meetingItem.digitalProduct"
-                    label="Digital Product *"
-                    hint="Related digital product or service"
-                    outlined
-                    dense
-                    :rules="[val => !!val || 'Digital Product is required']"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <q-separator class="q-my-lg" />
-
-            <div class="form-section">
-              <h6 class="section-title">Participants</h6>
-
-              <div class="row q-col-gutter-md">
-                <div class="col-12 col-md-4">
-                  <q-input
-                    v-model="meetingItem.requestor"
-                    label="Requestor *"
-                    hint="KBC ID (auto-filled)"
-                    outlined
-                    dense
-                    readonly
-                    :rules="[val => !!val || 'Requestor is required']"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="person" />
-                    </template>
-                  </q-input>
-                </div>
-
-                <div class="col-12 col-md-4">
-                  <q-input
-                    v-model="meetingItem.ownerPresenter"
-                    label="Owner/Presenter *"
-                    hint="KBC ID (defaults to Requestor)"
-                    outlined
-                    dense
-                    :rules="[val => !!val || 'Owner/Presenter is required']"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="record_voice_over" />
-                    </template>
-                  </q-input>
-                </div>
-
-                <div class="col-12 col-md-4">
-                  <q-input
-                    v-model="meetingItem.sponsor"
-                    label="Sponsor"
-                    hint="KBC ID (optional)"
-                    outlined
-                    dense
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="supervisor_account" />
-                    </template>
-                  </q-input>
-                </div>
-              </div>
-            </div>
+            <GeneralInfoTab
+              :meeting-item="meetingItem"
+              @update:meeting-item="handleMeetingItemUpdate"
+            />
           </q-tab-panel>
 
           <!-- Details Tab -->
           <q-tab-panel name="details" class="q-pa-lg">
-            <div class="form-section">
-              <h6 class="section-title">Additional Information</h6>
+            <DetailsTab
+              :meeting-item="meetingItem"
+              :can-change-status="canChangeStatus"
+              @update:meeting-item="handleMeetingItemUpdate"
+            />
+          </q-tab-panel>
 
-              <div class="row q-col-gutter-md">
-                <div class="col-12 col-md-6">
-                  <q-input
-                    v-model="meetingItem.submissionDate"
-                    label="Submission Date"
-                    outlined
-                    dense
-                    readonly
-                    hint="Auto-registered on submission"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="event" />
-                    </template>
-                  </q-input>
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <q-select
-                    v-model="meetingItem.status"
-                    label="Status"
-                    outlined
-                    dense
-                    :options="statusOptions"
-                    :disable="!canChangeStatus"
-                    hint="Current workflow status"
-                  />
-                </div>
-              </div>
-
-              <!-- Placeholder for future dynamic fields -->
-              <div class="q-mt-lg">
-                <q-banner rounded class="bg-blue-1 text-blue-9">
-                  <template v-slot:avatar>
-                    <q-icon name="info" color="blue" />
-                  </template>
-                  Additional custom fields will appear here based on the selected template.
-                </q-banner>
-              </div>
-            </div>
+          <!-- Additional Details Tab (Dynamic Template Fields) -->
+          <q-tab-panel name="additional" class="q-pa-lg">
+            <AdditionalDetailsTab
+              :field-values="meetingItem.fieldValues"
+              :template="template"
+              :historical-fields="historicalFields"
+              :loading="loading"
+              :decision-board-name="decisionBoardName"
+              @update:field-values="handleFieldValuesUpdate"
+            />
           </q-tab-panel>
 
           <!-- Documents Tab -->
@@ -249,6 +108,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import DocumentUpload from '../components/DocumentUpload.vue'
+import GeneralInfoTab from '../components/meetingItem/GeneralInfoTab.vue'
+import DetailsTab from '../components/meetingItem/DetailsTab.vue'
+import AdditionalDetailsTab from '../components/meetingItem/AdditionalDetailsTab.vue'
 import { meetingItemsApi } from '../api/meetingItems'
 
 const router = useRouter()
@@ -344,7 +206,125 @@ onMounted(async () => {
 const loadTemplate = async () => {
   try {
     loading.value = true
-    const response = await meetingItemsApi.getTemplateByDecisionBoard(meetingItem.value.decisionBoardId)
+
+    // TODO: Replace with real API call
+    // const response = await meetingItemsApi.getTemplateByDecisionBoard(meetingItem.value.decisionBoardId)
+
+    // Mock template data for demonstration
+    const response = {
+      templateId: 'template-456',
+      templateName: 'IT Governance Template',
+      description: 'Standard template for IT Governance Board',
+      fieldDefinitions: [
+        {
+          id: 'field-1',
+          fieldName: 'projectDescription',
+          label: 'Project Description',
+          fieldType: 'Text',
+          isRequired: true,
+          isActive: true,
+          isTextArea: true,
+          placeholderText: 'Describe the project in detail',
+          helpText: 'Provide a comprehensive overview of the project scope and objectives',
+          options: null
+        },
+        {
+          id: 'field-2',
+          fieldName: 'estimatedBudget',
+          label: 'Estimated Budget (EUR)',
+          fieldType: 'Number',
+          isRequired: true,
+          isActive: true,
+          isTextArea: false,
+          placeholderText: '0',
+          helpText: 'Total estimated budget in euros',
+          options: null
+        },
+        {
+          id: 'field-3',
+          fieldName: 'priority',
+          label: 'Priority Level',
+          fieldType: 'Dropdown',
+          isRequired: true,
+          isActive: true,
+          isTextArea: false,
+          placeholderText: 'Select priority',
+          helpText: 'Business priority of this initiative',
+          options: [
+            { value: 'low', label: 'Low', isDefault: false, isActive: true },
+            { value: 'medium', label: 'Medium', isDefault: true, isActive: true },
+            { value: 'high', label: 'High', isDefault: false, isActive: true },
+            { value: 'critical', label: 'Critical', isDefault: false, isActive: true }
+          ]
+        },
+        {
+          id: 'field-4',
+          fieldName: 'expectedGoLiveDate',
+          label: 'Expected Go-Live Date',
+          fieldType: 'Date',
+          isRequired: false,
+          isActive: true,
+          isTextArea: false,
+          placeholderText: '',
+          helpText: 'Target date for production deployment',
+          options: null
+        },
+        {
+          id: 'field-5',
+          fieldName: 'requiresArchitectureReview',
+          label: 'Requires Architecture Review',
+          fieldType: 'YesNo',
+          isRequired: false,
+          isActive: true,
+          isTextArea: false,
+          placeholderText: '',
+          helpText: 'Check if this project requires architecture board review',
+          options: null
+        },
+        {
+          id: 'field-6',
+          fieldName: 'affectedSystems',
+          label: 'Affected Systems',
+          fieldType: 'MultipleChoice',
+          isRequired: false,
+          isActive: true,
+          isTextArea: false,
+          placeholderText: 'Select all that apply',
+          helpText: 'Select all systems that will be impacted by this change',
+          options: [
+            { value: 'crm', label: 'CRM', isDefault: false, isActive: true },
+            { value: 'erp', label: 'ERP', isDefault: false, isActive: true },
+            { value: 'portal', label: 'Customer Portal', isDefault: false, isActive: true },
+            { value: 'mobile', label: 'Mobile App', isDefault: false, isActive: true },
+            { value: 'api', label: 'API Gateway', isDefault: false, isActive: true }
+          ]
+        },
+        {
+          id: 'field-7',
+          fieldName: 'businessJustification',
+          label: 'Business Justification',
+          fieldType: 'Text',
+          isRequired: true,
+          isActive: true,
+          isTextArea: true,
+          placeholderText: 'Explain the business value',
+          helpText: 'Describe the business benefits and ROI',
+          options: null
+        },
+        {
+          id: 'field-8',
+          fieldName: 'teamSize',
+          label: 'Team Size',
+          fieldType: 'Number',
+          isRequired: false,
+          isActive: true,
+          isTextArea: false,
+          placeholderText: '0',
+          helpText: 'Number of people in the project team',
+          options: null
+        }
+      ]
+    }
 
     template.value = response
     meetingItem.value.templateId = response.templateId
@@ -444,7 +424,6 @@ const mapFieldValuesToDto = () => {
     // Map to correct typed property based on field type
     switch (fieldDef.fieldType) {
       case 'Text':
-      case 'Email':
       case 'Dropdown':
         dto.textValue = value
         break
@@ -454,10 +433,10 @@ const mapFieldValuesToDto = () => {
       case 'Date':
         dto.dateValue = value instanceof Date ? value.toISOString() : value
         break
-      case 'Boolean':
+      case 'YesNo':
         dto.booleanValue = Boolean(value)
         break
-      case 'MultiSelect':
+      case 'MultipleChoice':
         dto.jsonValue = JSON.stringify(Array.isArray(value) ? value : [value])
         break
       default:
@@ -572,6 +551,14 @@ const handleDocumentsUpdate = (documents) => {
   meetingItem.value.documents = documents
   documentCount.value = documents.length
 }
+
+const handleMeetingItemUpdate = (updatedItem) => {
+  meetingItem.value = { ...meetingItem.value, ...updatedItem }
+}
+
+const handleFieldValuesUpdate = (updatedFieldValues) => {
+  meetingItem.value.fieldValues = { ...updatedFieldValues }
+}
 </script>
 
 <style scoped lang="scss">
@@ -608,17 +595,6 @@ const handleDocumentsUpdate = (documents) => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.form-section {
-  .section-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #2c3e50;
-    margin: 0 0 1.25rem 0;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid #e0e0e0;
-  }
-}
-
 .actions-bar {
   display: flex;
   justify-content: space-between;
@@ -631,14 +607,5 @@ const handleDocumentsUpdate = (documents) => {
   font-weight: 500;
   text-transform: none;
   font-size: 0.9rem;
-}
-
-:deep(.q-field__label) {
-  font-weight: 500;
-  color: #424242;
-}
-
-:deep(.q-field__bottom) {
-  font-size: 0.75rem;
 }
 </style>

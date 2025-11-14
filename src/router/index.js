@@ -25,7 +25,18 @@ const routes = [
   {
     path: '/templates',
     name: 'templates',
-    component: () => import('../pages/ComingSoonPage.vue')
+    component: () => import('../pages/TemplatesListPage.vue')
+  },
+  {
+    path: '/templates/create',
+    name: 'create-template',
+    component: () => import('../pages/TemplateBuilderPage.vue')
+  },
+  {
+    path: '/templates/:id',
+    name: 'edit-template',
+    component: () => import('../pages/TemplateBuilderPage.vue'),
+    props: true
   },
   {
     path: '/meetings',
