@@ -145,7 +145,7 @@ public class CreateMeetingItem
 
     internal class Handler(
         IMeetingItemRepository meetingItemRepository,
-        IDocumentStorageService documentStorage,
+        IBlobContainerClientFactory containerClientFactory,
         IUserSessionProvider userSessionProvider,
         IUnitOfWork unitOfWork) : ICommandHandler<Command, Response>
     {
@@ -154,39 +154,39 @@ public class CreateMeetingItem
             var currentUserId = userSessionProvider.GetUserId() ?? throw new UnauthorizedAccessException();
 
             // Create meeting item entity
-            var meetingItem = MeetingItem.Create(
-                command.DecisionBoardId,
-                command.TemplateId,
-                command.Topic,
-                command.Purpose,
-                command.Outcome,
-                command.DigitalProduct,
-                command.Duration,
-                command.Requestor,
-                command.OwnerPresenter,
-                command.Sponsor,
-                currentUserId);
+            var meetingItem = new MeetingItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                DecisionBoardId = command.DecisionBoardId,
+                TemplateId = command.TemplateId,
+                Topic = command.Topic,
+                Purpose = command.Purpose,
+                Outcome = command.Outcome,
+                DigitalProduct = command.DigitalProduct,
+                Duration = command.Duration,
+                Requestor = command.Requestor,
+                OwnerPresenter = command.OwnerPresenter,
+                Sponsor = command.Sponsor,
+                SubmissionDate = DateTime.UtcNow,
+                Status = "Draft",
+                CreatedAt = DateTime.UtcNow,
+                CreatedBy = currentUserId
+            };
 
             // Upload documents if provided
             var uploadedDocuments = new List<DocumentResponseDto>();
             if (command.Documents?.Any() == true)
             {
-                foreach (var docDto in command.Documents)
-                {
-                    var document = await UploadDocumentAsync(
-                        meetingItem.Id,
-                        docDto,
-                        currentUserId,
-                        cancellationToken);
+                var client = containerClientFactory.GetBlobContainerClient("meeting-item-documents");
+                var documents = await UploadDocumentsAsync(client, meetingItem.Id, command.Documents, currentUserId, cancellationToken);
 
-                    meetingItem.AddDocument(document);
+                meetingItem.Documents.AddRange(documents);
 
-                    uploadedDocuments.Add(new DocumentResponseDto(
-                        document.Id,
-                        document.FileName,
-                        document.FileSize,
-                        document.ContentType));
-                }
+                uploadedDocuments.AddRange(documents.Select(d => new DocumentResponseDto(
+                    d.Id,
+                    d.FileName,
+                    d.FileSize,
+                    d.ContentType)));
             }
 
             // Save to repository
@@ -196,35 +196,44 @@ public class CreateMeetingItem
             return BusinessResult.Success(new Response(meetingItem.Id, uploadedDocuments));
         }
 
-        private async Task<Document> UploadDocumentAsync(
+        private static async Task<List<Document>> UploadDocumentsAsync(
+            IBlobContainerClient client,
             string meetingItemId,
-            DocumentDto docDto,
+            IEnumerable<DocumentDto> documentDtos,
             string uploadedBy,
             CancellationToken cancellationToken)
         {
-            // Extract base64 content (remove data URL prefix if present)
-            var base64Content = docDto.Base64Content.Contains(',')
-                ? docDto.Base64Content.Split(',')[1]
-                : docDto.Base64Content;
+            var uploadTasks = documentDtos.Select(async docDto =>
+            {
+                // Extract base64 content (remove data URL prefix if present)
+                var base64Content = docDto.Base64Content.Contains(',')
+                    ? docDto.Base64Content.Split(',')[1]
+                    : docDto.Base64Content;
 
-            var fileContent = Convert.FromBase64String(base64Content);
+                var fileContent = Convert.FromBase64String(base64Content);
 
-            // Generate file path
-            var fileExtension = Path.GetExtension(docDto.FileName);
-            var fileName = $"{Guid.NewGuid()}{fileExtension}";
-            var filePath = $"meeting-items/{meetingItemId}/{fileName}";
+                // Generate blob name
+                var blobName = Guid.NewGuid().ToString();
 
-            // Upload to storage
-            await documentStorage.UploadAsync(filePath, fileContent, docDto.ContentType, cancellationToken);
+                // Upload to blob storage
+                using var stream = new MemoryStream(fileContent);
+                await client.UploadAsync(blobName, stream, cancellationToken);
 
-            // Create document entity
-            return Document.Create(
-                meetingItemId,
-                docDto.FileName,
-                filePath,
-                fileContent.Length,
-                docDto.ContentType,
-                uploadedBy);
+                // Create document entity
+                return new Document
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    MeetingItemId = meetingItemId,
+                    FileName = docDto.FileName,
+                    FilePath = blobName,
+                    FileSize = fileContent.Length,
+                    ContentType = docDto.ContentType,
+                    UploadDate = DateTime.UtcNow,
+                    UploadedBy = uploadedBy
+                };
+            });
+
+            return (await Task.WhenAll(uploadTasks)).ToList();
         }
     }
 

@@ -130,7 +130,7 @@ public class UpdateMeetingItem
 
     internal class Handler(
         IMeetingItemRepository meetingItemRepository,
-        IDocumentStorageService documentStorage,
+        IBlobContainerClientFactory containerClientFactory,
         IUserSessionProvider userSessionProvider,
         IUnitOfWork unitOfWork) : ICommandHandler<Command, Response>
     {
@@ -146,17 +146,19 @@ public class UpdateMeetingItem
                 return BusinessResult.NotFound<Response>(BusinessErrorMessage.NotFound);
             }
 
-            // Update meeting item
-            meetingItem.Update(
-                command.Topic,
-                command.Purpose,
-                command.Outcome,
-                command.DigitalProduct,
-                command.Duration,
-                command.OwnerPresenter,
-                command.Sponsor,
-                command.Status,
-                currentUserId);
+            // Update meeting item properties
+            meetingItem.Topic = command.Topic;
+            meetingItem.Purpose = command.Purpose;
+            meetingItem.Outcome = command.Outcome;
+            meetingItem.DigitalProduct = command.DigitalProduct;
+            meetingItem.Duration = command.Duration;
+            meetingItem.OwnerPresenter = command.OwnerPresenter;
+            meetingItem.Sponsor = command.Sponsor;
+            meetingItem.Status = command.Status;
+            meetingItem.UpdatedAt = DateTime.UtcNow;
+            meetingItem.UpdatedBy = currentUserId;
+
+            var client = containerClientFactory.GetBlobContainerClient("meeting-item-documents");
 
             // Delete documents if specified
             var deletedDocumentIds = new List<string>();
@@ -167,11 +169,11 @@ public class UpdateMeetingItem
                     var document = meetingItem.Documents.FirstOrDefault(d => d.Id == documentId);
                     if (document != null)
                     {
-                        // Delete from storage
-                        await documentStorage.DeleteAsync(document.FilePath, cancellationToken);
+                        // Delete from blob storage
+                        await client.DeleteAsync(document.FilePath, cancellationToken);
 
-                        // Remove from entity
-                        meetingItem.RemoveDocument(documentId);
+                        // Remove from collection
+                        meetingItem.Documents.Remove(document);
                         deletedDocumentIds.Add(documentId);
                     }
                 }
@@ -181,22 +183,15 @@ public class UpdateMeetingItem
             var uploadedDocuments = new List<CreateMeetingItem.DocumentResponseDto>();
             if (command.NewDocuments?.Any() == true)
             {
-                foreach (var docDto in command.NewDocuments)
-                {
-                    var document = await UploadDocumentAsync(
-                        meetingItem.Id,
-                        docDto,
-                        currentUserId,
-                        cancellationToken);
+                var newDocuments = await UploadDocumentsAsync(client, meetingItem.Id, command.NewDocuments, currentUserId, cancellationToken);
 
-                    meetingItem.AddDocument(document);
+                meetingItem.Documents.AddRange(newDocuments);
 
-                    uploadedDocuments.Add(new CreateMeetingItem.DocumentResponseDto(
-                        document.Id,
-                        document.FileName,
-                        document.FileSize,
-                        document.ContentType));
-                }
+                uploadedDocuments.AddRange(newDocuments.Select(d => new CreateMeetingItem.DocumentResponseDto(
+                    d.Id,
+                    d.FileName,
+                    d.FileSize,
+                    d.ContentType)));
             }
 
             // Save changes
@@ -209,35 +204,44 @@ public class UpdateMeetingItem
                 deletedDocumentIds));
         }
 
-        private async Task<Document> UploadDocumentAsync(
+        private static async Task<List<Document>> UploadDocumentsAsync(
+            IBlobContainerClient client,
             string meetingItemId,
-            CreateMeetingItem.DocumentDto docDto,
+            IEnumerable<CreateMeetingItem.DocumentDto> documentDtos,
             string uploadedBy,
             CancellationToken cancellationToken)
         {
-            // Extract base64 content (remove data URL prefix if present)
-            var base64Content = docDto.Base64Content.Contains(',')
-                ? docDto.Base64Content.Split(',')[1]
-                : docDto.Base64Content;
+            var uploadTasks = documentDtos.Select(async docDto =>
+            {
+                // Extract base64 content (remove data URL prefix if present)
+                var base64Content = docDto.Base64Content.Contains(',')
+                    ? docDto.Base64Content.Split(',')[1]
+                    : docDto.Base64Content;
 
-            var fileContent = Convert.FromBase64String(base64Content);
+                var fileContent = Convert.FromBase64String(base64Content);
 
-            // Generate file path
-            var fileExtension = Path.GetExtension(docDto.FileName);
-            var fileName = $"{Guid.NewGuid()}{fileExtension}";
-            var filePath = $"meeting-items/{meetingItemId}/{fileName}";
+                // Generate blob name
+                var blobName = Guid.NewGuid().ToString();
 
-            // Upload to storage
-            await documentStorage.UploadAsync(filePath, fileContent, docDto.ContentType, cancellationToken);
+                // Upload to blob storage
+                using var stream = new MemoryStream(fileContent);
+                await client.UploadAsync(blobName, stream, cancellationToken);
 
-            // Create document entity
-            return Document.Create(
-                meetingItemId,
-                docDto.FileName,
-                filePath,
-                fileContent.Length,
-                docDto.ContentType,
-                uploadedBy);
+                // Create document entity
+                return new Document
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    MeetingItemId = meetingItemId,
+                    FileName = docDto.FileName,
+                    FilePath = blobName,
+                    FileSize = fileContent.Length,
+                    ContentType = docDto.ContentType,
+                    UploadDate = DateTime.UtcNow,
+                    UploadedBy = uploadedBy
+                };
+            });
+
+            return (await Task.WhenAll(uploadTasks)).ToList();
         }
     }
 }

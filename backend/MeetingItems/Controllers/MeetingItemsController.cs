@@ -18,6 +18,22 @@ public class MeetingItemsController : ControllerBase
     }
 
     /// <summary>
+    /// Get meeting items by decision board ID
+    /// </summary>
+    [HttpGet("decision-board/{decisionBoardId}")]
+    [ProducesResponseType(typeof(GetMeetingItemsByDecisionBoard.Response), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMeetingItemsByDecisionBoard(string decisionBoardId, CancellationToken cancellationToken)
+    {
+        var query = new GetMeetingItemsByDecisionBoard.Query(decisionBoardId);
+        var result = await _mediator.Send(query, cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(result.Data)
+            : StatusCode(result.StatusCode, new { message = result.ErrorMessage });
+    }
+
+    /// <summary>
     /// Get a meeting item by ID
     /// </summary>
     [HttpGet("{id}")]
