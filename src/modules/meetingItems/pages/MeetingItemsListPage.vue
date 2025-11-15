@@ -180,7 +180,7 @@ async function handleUpdate(data: UpdateMeetingItemCommand) {
   }
 }
 
-function closeEditDialog() {
+function closeEditDialog(): void {
   showEditDialog.value = false
   meetingItemsStore.clearCurrentMeetingItem()
 }

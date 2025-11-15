@@ -14,8 +14,10 @@ export interface DocumentDto {
 export interface DocumentResponseDto {
   id: string
   fileName: string
+  originalFileName: string
   fileSize: number
   contentType: string
+  version: number
 }
 
 export interface CreateMeetingItemCommand {
@@ -37,6 +39,11 @@ export interface CreateMeetingItemResponse {
   uploadedDocuments: DocumentResponseDto[]
 }
 
+export interface DocumentVersionDto {
+  baseDocumentId: string
+  document: DocumentDto
+}
+
 export interface UpdateMeetingItemCommand {
   id: string
   topic: string
@@ -48,22 +55,28 @@ export interface UpdateMeetingItemCommand {
   sponsor?: string | null
   status: string
   newDocuments?: DocumentDto[]
+  documentVersions?: DocumentVersionDto[]
   documentsToDelete?: string[]
 }
 
 export interface UpdateMeetingItemResponse {
   meetingItemId: string
   newlyUploadedDocuments: DocumentResponseDto[]
+  versionedDocuments: DocumentResponseDto[]
   deletedDocumentIds: string[]
 }
 
 export interface GetMeetingItemDocumentDto {
   id: string
   fileName: string
+  originalFileName: string
+  storagePath: string
   fileSize: number
   contentType: string
+  version: number
   uploadDate: string
   uploadedBy: string
+  isLatestVersion: boolean
 }
 
 export interface GetMeetingItemResponse {

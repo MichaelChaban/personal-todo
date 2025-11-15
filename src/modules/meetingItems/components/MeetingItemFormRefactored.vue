@@ -106,7 +106,7 @@ const $t = (key: string): string => key
 
 // State
 const activeTab = ref<string>('general')
-const saving = ref(false)
+const saving = ref<boolean>(false)
 const documentsToUpload = ref<File[]>([])
 const documentsToDelete = ref<string[]>([])
 
@@ -150,7 +150,7 @@ const formData = ref<FormData>({
 const isNewItem = computed(() => !props.meetingItem)
 
 // Methods
-async function handleDocumentUpload(file: File) {
+async function handleDocumentUpload(file: File): Promise<void> {
   documentsToUpload.value.push(file)
 
   // Add to UI immediately for preview
@@ -164,7 +164,7 @@ async function handleDocumentUpload(file: File) {
   })
 }
 
-function handleDocumentDelete(documentId: string) {
+function handleDocumentDelete(documentId: string): void {
   // If it's a temporary document (not yet uploaded), just remove from list
   if (documentId.startsWith('temp-')) {
     const index = formData.value.documents.findIndex(d => d.id === documentId)
@@ -183,7 +183,7 @@ function handleDocumentDelete(documentId: string) {
   }
 }
 
-async function handleSubmit() {
+async function handleSubmit(): Promise<void> {
   saving.value = true
 
   try {

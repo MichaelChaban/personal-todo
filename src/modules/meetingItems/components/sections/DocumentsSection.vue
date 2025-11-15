@@ -111,7 +111,6 @@
 import { ref } from 'vue'
 import { formatFileSize, getFileExtension } from '../../utils/fileHelpers'
 import type { GetMeetingItemDocumentDto } from '@/api/generated/meetingItemsApi'
-import { QFile } from 'quasar'
 
 // Props
 defineProps<{
@@ -129,8 +128,8 @@ const emit = defineEmits<{
 const $t = (key: string): string => key
 
 // State
-const showUploadDialog = ref(false)
-const showDeleteDialog = ref(false)
+const showUploadDialog = ref<boolean>(false)
+const showDeleteDialog = ref<boolean>(false)
 const fileToUpload = ref<File | null>(null)
 const documentToDelete = ref<string | null>(null)
 
@@ -159,12 +158,11 @@ function formatDate(dateString: string): string {
   return date.toLocaleDateString()
 }
 
-function onFileRejected() {
-  // Handle file rejection (size too large, etc.)
+function onFileRejected(): void {
   alert($t('File rejected. Please ensure the file is less than 10 MB.'))
 }
 
-function uploadFile() {
+function uploadFile(): void {
   if (fileToUpload.value) {
     emit('upload', fileToUpload.value)
     fileToUpload.value = null
@@ -172,12 +170,12 @@ function uploadFile() {
   }
 }
 
-function confirmDelete(documentId: string) {
+function confirmDelete(documentId: string): void {
   documentToDelete.value = documentId
   showDeleteDialog.value = true
 }
 
-function deleteDocument() {
+function deleteDocument(): void {
   if (documentToDelete.value) {
     emit('delete', documentToDelete.value)
     documentToDelete.value = null
