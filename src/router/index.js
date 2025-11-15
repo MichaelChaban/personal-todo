@@ -8,18 +8,18 @@ const routes = [
   },
   {
     path: '/meeting-items',
-    name: 'meeting-items',
-    component: () => import('../pages/MeetingItemsListPage.vue')
+    name: 'meeting-items-list',
+    component: () => import('../pages/meetingItems/MeetingItemsListPage.vue')
   },
   {
     path: '/meeting-items/create',
-    name: 'create-meeting-item',
-    component: () => import('../pages/MeetingItemPage.vue')
+    name: 'meeting-item-create',
+    component: () => import('../pages/meetingItems/MeetingItemPage.vue')
   },
   {
     path: '/meeting-items/:id',
-    name: 'edit-meeting-item',
-    component: () => import('../pages/MeetingItemPage.vue'),
+    name: 'meeting-item-edit',
+    component: () => import('../pages/meetingItems/MeetingItemPage.vue'),
     props: true
   },
   {

@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@quasar/extras": "^1.16.11",
+    "@vee-validate/yup": "^4.15.1",
     "quasar": "^2.14.5",
+    "vee-validate": "^4.15.1",
     "vue": "^3.4.21",
     "vue-router": "^4.3.0",
-    "vuedraggable": "^4.1.0"
+    "vuedraggable": "^4.1.0",
+    "yup": "^1.7.1"
   },
   "devDependencies": {
     "@quasar/vite-plugin": "^1.7.0",
