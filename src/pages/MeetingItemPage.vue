@@ -4,8 +4,8 @@
       <!-- Header -->
       <div class="page-header q-mb-lg">
         <div>
-          <h4 class="q-ma-none q-mb-xs">{{ isEditMode ? 'Edit Meeting Item' : 'Create Meeting Item' }}</h4>
-          <p class="text-grey-7 q-ma-none">{{ isEditMode ? 'Update meeting item details' : 'Complete all required fields to submit your request' }}</p>
+          <h4 class="q-ma-none q-mb-xs">{{ isEditMode ? $t('Edit Meeting Item') : $t('Create Meeting Item') }}</h4>
+          <p class="text-grey-7 q-ma-none">{{ isEditMode ? $t('Update meeting item details') : $t('Complete all required fields to submit your request') }}</p>
         </div>
         <q-chip v-if="meetingItem.status" :color="statusColor" text-color="white" class="status-chip">
           {{ meetingItem.status }}
@@ -23,10 +23,9 @@
           align="left"
           narrow-indicator
         >
-          <q-tab name="general" label="General" icon="info" />
-          <q-tab name="details" label="Details" icon="description" />
-          <q-tab name="additional" label="Additional Details" icon="dashboard_customize" :badge="template?.fieldDefinitions?.length || undefined" />
-          <q-tab name="documents" label="Documents" icon="attachment" :badge="documentCount || undefined" />
+          <q-tab name="general" :label="$t('General')" icon="info" />
+          <q-tab name="details" :label="$t('Details')" icon="description" />
+          <q-tab name="documents" :label="$t('Documents')" icon="attachment" :badge="documentCount || undefined" />
         </q-tabs>
 
         <q-separator />
@@ -49,18 +48,6 @@
             />
           </q-tab-panel>
 
-          <!-- Additional Details Tab (Dynamic Template Fields) -->
-          <q-tab-panel name="additional" class="q-pa-lg">
-            <AdditionalDetailsTab
-              :field-values="meetingItem.fieldValues"
-              :template="template"
-              :historical-fields="historicalFields"
-              :loading="loading"
-              :decision-board-name="decisionBoardName"
-              @update:field-values="handleFieldValuesUpdate"
-            />
-          </q-tab-panel>
-
           <!-- Documents Tab -->
           <q-tab-panel name="documents" class="q-pa-lg">
             <DocumentUpload
@@ -77,21 +64,21 @@
       <div class="actions-bar q-mt-lg">
         <q-btn
           flat
-          label="Cancel"
+          :label="$t('Cancel')"
           color="grey-7"
           @click="handleCancel"
         />
         <div class="q-gutter-sm">
           <q-btn
             outline
-            label="Save Draft"
+            :label="$t('Save Draft')"
             color="primary"
             @click="handleSaveDraft"
             :loading="saving"
           />
           <q-btn
             unelevated
-            label="Submit"
+            :label="$t('Submit')"
             color="primary"
             @click="handleSubmit"
             :loading="submitting"
@@ -103,35 +90,36 @@
   </q-page>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import DocumentUpload from '../components/DocumentUpload.vue'
 import GeneralInfoTab from '../components/meetingItem/GeneralInfoTab.vue'
 import DetailsTab from '../components/meetingItem/DetailsTab.vue'
-import AdditionalDetailsTab from '../components/meetingItem/AdditionalDetailsTab.vue'
 import { meetingItemsApi } from '../api/meetingItems'
+
+// Placeholder $t function
+const $t = (key: string): string => key
 
 const router = useRouter()
 const $q = useQuasar()
 
 // Props (if editing existing item)
-const props = defineProps({
-  id: String
-})
+const props = defineProps<{
+  id?: string
+}>()
 
 // State
-const activeTab = ref('general')
-const saving = ref(false)
-const submitting = ref(false)
-const documentCount = ref(0)
-const loading = ref(false)
+const activeTab = ref<string>('general')
+const saving = ref<boolean>(false)
+const submitting = ref<boolean>(false)
+const documentCount = ref<number>(0)
+const loading = ref<boolean>(false)
 
 const meetingItem = ref({
   id: null,
   decisionBoardId: 'board-123', // TODO: Get from context/route
-  templateId: 'template-456', // TODO: Get from decision board
   topic: '',
   purpose: '',
   outcome: null,
@@ -142,19 +130,10 @@ const meetingItem = ref({
   sponsor: '',
   status: 'Submitted',
   submissionDate: null,
-  fieldValues: {}, // Dynamic fields from template
   documents: []
 })
 
-const template = ref(null)
-const activeFields = ref([])
-const historicalFields = ref([])
-
-// Options
-const outcomeOptions = ['Decision', 'Discussion', 'Information']
-const statusOptions = ['Submitted', 'Proposed', 'Planned', 'Discussed', 'Denied']
-const decisionBoardAbbr = ref('DB')
-const decisionBoardName = ref('')
+const decisionBoardAbbr = ref<string>('DB')
 
 // Computed
 const isEditMode = computed(() => !!props.id)
@@ -189,13 +168,10 @@ const isFormValid = computed(() => {
 })
 
 // Lifecycle
-onMounted(async () => {
+onMounted(async (): Promise<void> => {
   // Initialize requestor from current user
   meetingItem.value.requestor = 'USER123' // TODO: Get from auth context
   meetingItem.value.ownerPresenter = meetingItem.value.requestor
-
-  // Load template for decision board
-  await loadTemplate()
 
   if (isEditMode.value) {
     await loadMeetingItem(props.id)
@@ -203,151 +179,9 @@ onMounted(async () => {
 })
 
 // Methods
-const loadTemplate = async () => {
-  try {
-    loading.value = true
+const loadMeetingItem = async (id?: string): Promise<void> => {
+  if (!id) return
 
-    // TODO: Replace with real API call
-    // const response = await meetingItemsApi.getTemplateByDecisionBoard(meetingItem.value.decisionBoardId)
-
-    // Mock template data for demonstration
-    const response = {
-      templateId: 'template-456',
-      templateName: 'IT Governance Template',
-      description: 'Standard template for IT Governance Board',
-      fieldDefinitions: [
-        {
-          id: 'field-1',
-          fieldName: 'projectDescription',
-          label: 'Project Description',
-          fieldType: 'Text',
-          isRequired: true,
-          isActive: true,
-          isTextArea: true,
-          placeholderText: 'Describe the project in detail',
-          helpText: 'Provide a comprehensive overview of the project scope and objectives',
-          options: null
-        },
-        {
-          id: 'field-2',
-          fieldName: 'estimatedBudget',
-          label: 'Estimated Budget (EUR)',
-          fieldType: 'Number',
-          isRequired: true,
-          isActive: true,
-          isTextArea: false,
-          placeholderText: '0',
-          helpText: 'Total estimated budget in euros',
-          options: null
-        },
-        {
-          id: 'field-3',
-          fieldName: 'priority',
-          label: 'Priority Level',
-          fieldType: 'Dropdown',
-          isRequired: true,
-          isActive: true,
-          isTextArea: false,
-          placeholderText: 'Select priority',
-          helpText: 'Business priority of this initiative',
-          options: [
-            { value: 'low', label: 'Low', isDefault: false, isActive: true },
-            { value: 'medium', label: 'Medium', isDefault: true, isActive: true },
-            { value: 'high', label: 'High', isDefault: false, isActive: true },
-            { value: 'critical', label: 'Critical', isDefault: false, isActive: true }
-          ]
-        },
-        {
-          id: 'field-4',
-          fieldName: 'expectedGoLiveDate',
-          label: 'Expected Go-Live Date',
-          fieldType: 'Date',
-          isRequired: false,
-          isActive: true,
-          isTextArea: false,
-          placeholderText: '',
-          helpText: 'Target date for production deployment',
-          options: null
-        },
-        {
-          id: 'field-5',
-          fieldName: 'requiresArchitectureReview',
-          label: 'Requires Architecture Review',
-          fieldType: 'YesNo',
-          isRequired: false,
-          isActive: true,
-          isTextArea: false,
-          placeholderText: '',
-          helpText: 'Check if this project requires architecture board review',
-          options: null
-        },
-        {
-          id: 'field-6',
-          fieldName: 'affectedSystems',
-          label: 'Affected Systems',
-          fieldType: 'MultipleChoice',
-          isRequired: false,
-          isActive: true,
-          isTextArea: false,
-          placeholderText: 'Select all that apply',
-          helpText: 'Select all systems that will be impacted by this change',
-          options: [
-            { value: 'crm', label: 'CRM', isDefault: false, isActive: true },
-            { value: 'erp', label: 'ERP', isDefault: false, isActive: true },
-            { value: 'portal', label: 'Customer Portal', isDefault: false, isActive: true },
-            { value: 'mobile', label: 'Mobile App', isDefault: false, isActive: true },
-            { value: 'api', label: 'API Gateway', isDefault: false, isActive: true }
-          ]
-        },
-        {
-          id: 'field-7',
-          fieldName: 'businessJustification',
-          label: 'Business Justification',
-          fieldType: 'Text',
-          isRequired: true,
-          isActive: true,
-          isTextArea: true,
-          placeholderText: 'Explain the business value',
-          helpText: 'Describe the business benefits and ROI',
-          options: null
-        },
-        {
-          id: 'field-8',
-          fieldName: 'teamSize',
-          label: 'Team Size',
-          fieldType: 'Number',
-          isRequired: false,
-          isActive: true,
-          isTextArea: false,
-          placeholderText: '0',
-          helpText: 'Number of people in the project team',
-          options: null
-        }
-      ]
-    }
-
-    template.value = response
-    meetingItem.value.templateId = response.templateId
-
-    // Initialize field values from template
-    response.fieldDefinitions.forEach(field => {
-      if (field.isRequired || field.options?.some(opt => opt.isDefault)) {
-        const defaultOption = field.options?.find(opt => opt.isDefault)
-        meetingItem.value.fieldValues[field.fieldName] = defaultOption?.value || null
-      }
-    })
-  } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'Failed to load template',
-      caption: error.message
-    })
-  } finally {
-    loading.value = false
-  }
-}
-
-const loadMeetingItem = async (id) => {
   try {
     loading.value = true
     const response = await meetingItemsApi.getMeetingItem(id)
@@ -355,7 +189,6 @@ const loadMeetingItem = async (id) => {
     // Map response to form structure
     meetingItem.value.id = response.id
     meetingItem.value.decisionBoardId = response.decisionBoardId
-    meetingItem.value.templateId = response.templateId
     meetingItem.value.topic = response.topic
     meetingItem.value.purpose = response.purpose
     meetingItem.value.outcome = response.outcome
@@ -367,24 +200,13 @@ const loadMeetingItem = async (id) => {
     meetingItem.value.status = response.status
     meetingItem.value.submissionDate = response.submissionDate
 
-    decisionBoardName.value = response.decisionBoardName
-
-    // Map active fields
-    activeFields.value = response.activeFields || []
-    response.activeFields?.forEach(field => {
-      meetingItem.value.fieldValues[field.fieldName] = getFieldValue(field)
-    })
-
-    // Store historical fields for display
-    historicalFields.value = response.historicalFields || []
-
     // Documents
     meetingItem.value.documents = response.documents || []
     documentCount.value = meetingItem.value.documents.length
-  } catch (error) {
+  } catch (error: any) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to load meeting item',
+      message: $t('Failed to load meeting item'),
       caption: error.message
     })
   } finally {
@@ -392,69 +214,11 @@ const loadMeetingItem = async (id) => {
   }
 }
 
-const getFieldValue = (field) => {
-  // Extract value based on field type
-  if (field.textValue !== null) return field.textValue
-  if (field.numberValue !== null) return field.numberValue
-  if (field.dateValue !== null) return field.dateValue
-  if (field.booleanValue !== null) return field.booleanValue
-  if (field.jsonValue !== null) return JSON.parse(field.jsonValue)
-  return null
-}
-
-const mapFieldValuesToDto = () => {
-  // Convert field values object to FieldValueDto array
-  const fieldValues = []
-
-  Object.entries(meetingItem.value.fieldValues).forEach(([fieldName, value]) => {
-    if (value === null || value === undefined) return
-
-    const fieldDef = template.value?.fieldDefinitions?.find(f => f.fieldName === fieldName)
-    if (!fieldDef) return
-
-    const dto = {
-      fieldName,
-      textValue: null,
-      numberValue: null,
-      dateValue: null,
-      booleanValue: null,
-      jsonValue: null
-    }
-
-    // Map to correct typed property based on field type
-    switch (fieldDef.fieldType) {
-      case 'Text':
-      case 'Dropdown':
-        dto.textValue = value
-        break
-      case 'Number':
-        dto.numberValue = typeof value === 'number' ? value : parseFloat(value)
-        break
-      case 'Date':
-        dto.dateValue = value instanceof Date ? value.toISOString() : value
-        break
-      case 'YesNo':
-        dto.booleanValue = Boolean(value)
-        break
-      case 'MultipleChoice':
-        dto.jsonValue = JSON.stringify(Array.isArray(value) ? value : [value])
-        break
-      default:
-        dto.textValue = String(value)
-    }
-
-    fieldValues.push(dto)
-  })
-
-  return fieldValues
-}
-
-const handleSaveDraft = async () => {
+const handleSaveDraft = async (): Promise<void> => {
   saving.value = true
   try {
     const payload = {
       decisionBoardId: meetingItem.value.decisionBoardId,
-      templateId: meetingItem.value.templateId,
       topic: meetingItem.value.topic,
       purpose: meetingItem.value.purpose,
       outcome: meetingItem.value.outcome,
@@ -462,7 +226,6 @@ const handleSaveDraft = async () => {
       durationMinutes: meetingItem.value.duration,
       ownerPresenterUserId: meetingItem.value.ownerPresenter,
       sponsorUserId: meetingItem.value.sponsor || null,
-      fieldValues: mapFieldValuesToDto(),
       documents: []
     }
 
@@ -475,12 +238,12 @@ const handleSaveDraft = async () => {
 
     $q.notify({
       type: 'positive',
-      message: 'Draft saved successfully'
+      message: $t('Draft saved successfully')
     })
-  } catch (error) {
+  } catch (error: any) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to save draft',
+      message: $t('Failed to save draft'),
       caption: error.message
     })
   } finally {
@@ -488,11 +251,11 @@ const handleSaveDraft = async () => {
   }
 }
 
-const handleSubmit = async () => {
+const handleSubmit = async (): Promise<void> => {
   if (!isFormValid.value) {
     $q.notify({
       type: 'warning',
-      message: 'Please complete all required fields'
+      message: $t('Please complete all required fields')
     })
     return
   }
@@ -501,7 +264,6 @@ const handleSubmit = async () => {
   try {
     const payload = {
       decisionBoardId: meetingItem.value.decisionBoardId,
-      templateId: meetingItem.value.templateId,
       topic: meetingItem.value.topic,
       purpose: meetingItem.value.purpose,
       outcome: meetingItem.value.outcome,
@@ -509,8 +271,7 @@ const handleSubmit = async () => {
       durationMinutes: meetingItem.value.duration,
       ownerPresenterUserId: meetingItem.value.ownerPresenter,
       sponsorUserId: meetingItem.value.sponsor || null,
-      fieldValues: mapFieldValuesToDto(),
-      documents: meetingItem.value.documents.map(doc => ({
+      documents: meetingItem.value.documents.map((doc: any) => ({
         fileName: doc.fileName,
         contentType: doc.contentType,
         base64Content: doc.base64Content
@@ -521,21 +282,21 @@ const handleSubmit = async () => {
       await meetingItemsApi.updateMeetingItem(meetingItem.value.id, payload)
       $q.notify({
         type: 'positive',
-        message: 'Meeting item updated successfully'
+        message: $t('Meeting item updated successfully')
       })
     } else {
       await meetingItemsApi.createMeetingItem(payload)
       $q.notify({
         type: 'positive',
-        message: 'Meeting item submitted successfully'
+        message: $t('Meeting item submitted successfully')
       })
     }
 
     router.push('/meeting-items')
-  } catch (error) {
+  } catch (error: any) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to submit meeting item',
+      message: $t('Failed to submit meeting item'),
       caption: error.message
     })
   } finally {
@@ -543,21 +304,17 @@ const handleSubmit = async () => {
   }
 }
 
-const handleCancel = () => {
+const handleCancel = (): void => {
   router.push('/meeting-items')
 }
 
-const handleDocumentsUpdate = (documents) => {
+const handleDocumentsUpdate = (documents: any): void => {
   meetingItem.value.documents = documents
   documentCount.value = documents.length
 }
 
-const handleMeetingItemUpdate = (updatedItem) => {
+const handleMeetingItemUpdate = (updatedItem: any): void => {
   meetingItem.value = { ...meetingItem.value, ...updatedItem }
-}
-
-const handleFieldValuesUpdate = (updatedFieldValues) => {
-  meetingItem.value.fieldValues = { ...updatedFieldValues }
 }
 </script>
 

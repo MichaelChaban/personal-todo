@@ -3,7 +3,7 @@
     <!-- Upload Area -->
     <q-file
       v-model="selectedFile"
-      label="Upload Supporting Documents"
+      :label="$t('Upload Supporting Documents')"
       outlined
       dense
       counter
@@ -16,7 +16,7 @@
         <q-icon name="cloud_upload" />
       </template>
       <template v-slot:hint>
-        Max file size: 10MB. Allowed formats: PDF, Word, Excel, PowerPoint
+        {{ $t('Max file size: 10MB. Allowed formats: PDF, Word, Excel, PowerPoint') }}
       </template>
       <template v-slot:after>
         <q-btn
@@ -34,7 +34,7 @@
     <!-- Document List -->
     <div v-if="documents.length > 0" class="documents-list">
       <div class="list-header">
-        <span class="text-weight-medium">Uploaded Documents ({{ documents.length }})</span>
+        <span class="text-weight-medium">{{ $t('Uploaded Documents') }} ({{ documents.length }})</span>
       </div>
 
       <q-list bordered separator class="rounded-borders">
@@ -75,7 +75,7 @@
                 size="sm"
                 @click="handleDownload(doc)"
               >
-                <q-tooltip>Download</q-tooltip>
+                <q-tooltip>{{ $t('Download') }}</q-tooltip>
               </q-btn>
               <q-btn
                 flat
@@ -86,7 +86,7 @@
                 size="sm"
                 @click="handleDelete(doc)"
               >
-                <q-tooltip>Delete</q-tooltip>
+                <q-tooltip>{{ $t('Delete') }}</q-tooltip>
               </q-btn>
             </div>
           </q-item-section>
@@ -97,41 +97,37 @@
     <!-- Empty State -->
     <div v-else class="empty-state">
       <q-icon name="description" size="4rem" color="grey-5" />
-      <p class="text-grey-7 q-mt-md">No documents uploaded yet</p>
-      <p class="text-grey-6 text-caption">Upload documents to support your request</p>
+      <p class="text-grey-7 q-mt-md">{{ $t('No documents uploaded yet') }}</p>
+      <p class="text-grey-6 text-caption">{{ $t('Upload documents to support your request') }}</p>
     </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
 import { meetingItemsApi } from '../api/meetingItems'
 
-const props = defineProps({
-  meetingItemId: String,
-  decisionBoardAbbr: {
-    type: String,
-    required: true
-  },
-  topic: {
-    type: String,
-    default: ''
-  },
-  initialDocuments: {
-    type: Array,
-    default: () => []
-  }
-})
+// Placeholder $t function
+const $t = (key: string): string => key
 
-const emit = defineEmits(['documents-updated'])
+const props = defineProps<{
+  meetingItemId?: string
+  decisionBoardAbbr: string
+  topic?: string
+  initialDocuments?: any[]
+}>()
+
+const emit = defineEmits<{
+  'documents-updated': [value: any[]]
+}>()
 
 const $q = useQuasar()
 
 // State
-const selectedFile = ref(null)
-const documents = ref([])
-const uploading = ref(false)
+const selectedFile = ref<File | null>(null)
+const documents = ref<any[]>([])
+const uploading = ref<boolean>(false)
 
 // Computed
 const sortedDocuments = computed(() => {
@@ -151,20 +147,20 @@ onMounted(() => {
 })
 
 // Methods
-const triggerFileInput = () => {
+const triggerFileInput = (): void => {
   // The file is already selected, proceed with upload
   if (selectedFile.value) {
     handleUpload()
   }
 }
 
-const handleFileSelect = (file) => {
+const handleFileSelect = (file: File | null): void => {
   if (file) {
     // Validate file size
     if (file.size > 10485760) {
       $q.notify({
         type: 'negative',
-        message: 'File size exceeds 10MB limit'
+        message: $t('File size exceeds 10MB limit')
       })
       selectedFile.value = null
       return
@@ -172,16 +168,16 @@ const handleFileSelect = (file) => {
   }
 }
 
-const convertFileToBase64 = (file) => {
+const convertFileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.readAsDataURL(file)
-    reader.onload = () => resolve(reader.result)
+    reader.onload = () => resolve(reader.result as string)
     reader.onerror = error => reject(error)
   })
 }
 
-const handleUpload = async () => {
+const handleUpload = async (): Promise<void> => {
   if (!selectedFile.value) return
 
   const file = selectedFile.value
@@ -214,7 +210,7 @@ const handleUpload = async () => {
 
       $q.notify({
         type: 'positive',
-        message: 'Document uploaded successfully',
+        message: $t('Document uploaded successfully'),
         caption: response.storedFileName
       })
     } else {
@@ -233,7 +229,7 @@ const handleUpload = async () => {
 
       $q.notify({
         type: 'positive',
-        message: 'Document added (will be uploaded on submit)',
+        message: $t('Document added (will be uploaded on submit)'),
         caption: file.name
       })
     }
@@ -242,10 +238,10 @@ const handleUpload = async () => {
     emit('documents-updated', documents.value)
     selectedFile.value = null
 
-  } catch (error) {
+  } catch (error: any) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to upload document',
+      message: $t('Failed to upload document'),
       caption: error.message
     })
   } finally {
@@ -253,7 +249,7 @@ const handleUpload = async () => {
   }
 }
 
-const handleDownload = async (doc) => {
+const handleDownload = async (doc: any): Promise<void> => {
   try {
     const blob = await meetingItemsApi.downloadDocument(doc.id)
 
@@ -269,24 +265,27 @@ const handleDownload = async (doc) => {
 
     $q.notify({
       type: 'positive',
-      message: `Downloaded ${doc.originalFileName || doc.fileName}`
+      message: $t('Downloaded {fileName}', { fileName: doc.originalFileName || doc.fileName })
     })
-  } catch (error) {
+  } catch (error: any) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to download document',
+      message: $t('Failed to download document'),
       caption: error.message
     })
   }
 }
 
-const handleDelete = (doc) => {
+const handleDelete = (doc: any): void => {
   $q.dialog({
-    title: 'Confirm Delete',
-    message: `Are you sure you want to delete "${doc.originalFileName || doc.fileName}"${doc.version ? ` (v${doc.version})` : ''}?`,
+    title: $t('Confirm Delete'),
+    message: $t('Are you sure you want to delete "{fileName}"{version}?', {
+      fileName: doc.originalFileName || doc.fileName,
+      version: doc.version ? ` (v${doc.version})` : ''
+    }),
     cancel: true,
     persistent: true
-  }).onOk(async () => {
+  }).onOk(async (): Promise<void> => {
     try {
       if (props.meetingItemId && doc.id) {
         // Delete via API if document is already uploaded
@@ -298,23 +297,23 @@ const handleDelete = (doc) => {
 
       $q.notify({
         type: 'positive',
-        message: 'Document deleted successfully'
+        message: $t('Document deleted successfully')
       })
 
       emit('documents-updated', documents.value)
-    } catch (error) {
+    } catch (error: any) {
       $q.notify({
         type: 'negative',
-        message: 'Failed to delete document',
+        message: $t('Failed to delete document'),
         caption: error.message
       })
     }
   })
 }
 
-const getFileIcon = (fileName) => {
+const getFileIcon = (fileName: string): string => {
   const ext = fileName.split('.').pop()?.toLowerCase()
-  const icons = {
+  const icons: Record<string, string> = {
     'pdf': 'picture_as_pdf',
     'doc': 'description',
     'docx': 'description',
@@ -323,12 +322,12 @@ const getFileIcon = (fileName) => {
     'ppt': 'slideshow',
     'pptx': 'slideshow'
   }
-  return icons[ext] || 'insert_drive_file'
+  return icons[ext || ''] || 'insert_drive_file'
 }
 
-const getFileColor = (fileName) => {
+const getFileColor = (fileName: string): string => {
   const ext = fileName.split('.').pop()?.toLowerCase()
-  const colors = {
+  const colors: Record<string, string> = {
     'pdf': 'red-6',
     'doc': 'blue-6',
     'docx': 'blue-6',
@@ -337,10 +336,10 @@ const getFileColor = (fileName) => {
     'ppt': 'orange-6',
     'pptx': 'orange-6'
   }
-  return colors[ext] || 'grey-6'
+  return colors[ext || ''] || 'grey-6'
 }
 
-const formatDate = (dateStr) => {
+const formatDate = (dateStr: string): string => {
   const date = new Date(dateStr)
   return date.toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -351,7 +350,7 @@ const formatDate = (dateStr) => {
   })
 }
 
-const formatFileSize = (bytes) => {
+const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 Bytes'
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB']

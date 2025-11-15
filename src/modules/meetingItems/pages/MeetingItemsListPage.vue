@@ -127,8 +127,8 @@ const meetingItemsStore = useMeetingItemsStore()
 
 // State
 const statusFilter = ref<string>('all')
-const showCreateDialog = ref(false)
-const showEditDialog = ref(false)
+const showCreateDialog = ref<boolean>(false)
+const showEditDialog = ref<boolean>(false)
 
 // Computed
 const filteredItems = computed(() => {
@@ -143,7 +143,7 @@ const filteredItems = computed(() => {
 })
 
 // Methods
-async function loadMeetingItems() {
+async function loadMeetingItems(): Promise<void> {
   try {
     await meetingItemsStore.fetchMeetingItemsByDecisionBoard(props.decisionBoardId)
   } catch (error) {
@@ -151,7 +151,7 @@ async function loadMeetingItems() {
   }
 }
 
-async function handleCreate(data: CreateMeetingItemCommand) {
+async function handleCreate(data: CreateMeetingItemCommand): Promise<void> {
   try {
     await meetingItemsStore.createMeetingItem(data)
     showCreateDialog.value = false
@@ -160,7 +160,7 @@ async function handleCreate(data: CreateMeetingItemCommand) {
   }
 }
 
-async function editMeetingItem(id: string) {
+async function editMeetingItem(id: string): Promise<void> {
   try {
     await meetingItemsStore.fetchMeetingItem(id)
     showEditDialog.value = true
@@ -169,7 +169,7 @@ async function editMeetingItem(id: string) {
   }
 }
 
-async function handleUpdate(data: UpdateMeetingItemCommand) {
+async function handleUpdate(data: UpdateMeetingItemCommand): Promise<void> {
   try {
     if (meetingItemsStore.currentMeetingItem?.id) {
       await meetingItemsStore.updateMeetingItem(meetingItemsStore.currentMeetingItem.id, data)

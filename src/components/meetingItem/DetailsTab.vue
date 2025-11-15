@@ -1,16 +1,16 @@
 <template>
   <div class="form-section">
-    <h6 class="section-title">System Information</h6>
+    <h6 class="section-title">{{ $t('System Information') }}</h6>
 
     <div class="row q-col-gutter-md">
       <div class="col-12 col-md-6">
         <q-input
           v-model="localMeetingItem.submissionDate"
-          label="Submission Date"
+          :label="$t('Submission Date')"
           outlined
           dense
           readonly
-          hint="Auto-registered on submission"
+          :hint="$t('Auto-registered on submission')"
         >
           <template v-slot:prepend>
             <q-icon name="event" />
@@ -21,12 +21,12 @@
       <div class="col-12 col-md-6">
         <q-select
           v-model="localMeetingItem.status"
-          label="Status"
+          :label="$t('Status')"
           outlined
           dense
           :options="statusOptions"
           :disable="!canChangeStatus"
-          hint="Current workflow status"
+          :hint="$t('Current workflow status')"
           @update:model-value="emitUpdate"
         />
       </div>
@@ -34,32 +34,31 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch } from 'vue'
 
-const props = defineProps({
-  meetingItem: {
-    type: Object,
-    required: true
-  },
-  canChangeStatus: {
-    type: Boolean,
-    default: false
-  }
-})
+// Placeholder $t function
+const $t = (key: string): string => key
 
-const emit = defineEmits(['update:meetingItem'])
+const props = defineProps<{
+  meetingItem: any
+  canChangeStatus?: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:meetingItem': [value: any]
+}>()
 
 // Local copy for v-model
 const localMeetingItem = ref({ ...props.meetingItem })
 
 // Watch for external changes
-watch(() => props.meetingItem, (newVal) => {
+watch(() => props.meetingItem, (newVal: any) => {
   localMeetingItem.value = { ...newVal }
 }, { deep: true })
 
 // Emit updates
-const emitUpdate = () => {
+const emitUpdate = (): void => {
   emit('update:meetingItem', localMeetingItem.value)
 }
 
